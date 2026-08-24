@@ -1,0 +1,3 @@
+yt-dlp>=2026.8.19
+pywebview>=5.0
+pyinstaller>=6.0 ; extra == "build"

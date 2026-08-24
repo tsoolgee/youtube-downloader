@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YT-DLP Studio</title>
+<style>
+/* ============================ tokens ============================ */
+:root{
+  --accent:#8b5cf6; --accent2:#22d3ee; --ok:#34d399; --warn:#fbbf24; --err:#fb7185;
+  --r:18px; --r2:12px; --r3:9px;
+  --font:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"Noto Sans Hebrew",Arial,sans-serif;
+  --ease:cubic-bezier(.22,.9,.28,1);
+}
+[data-theme="dark"]{
+  --bg:#06080f; --bg2:#0b0f1c; --bg3:#0f1425;
+  --card:rgba(255,255,255,.042); --card2:rgba(255,255,255,.028);
+  --line:rgba(255,255,255,.085); --line2:rgba(255,255,255,.05);
+  --txt:#eaeefa; --muted:#98a3bf; --faint:#6a7492;
+  --input:rgba(255,255,255,.05);
+  --glow:inset 0 1px 0 rgba(255,255,255,.06);
+  --shadow:0 20px 55px rgba(0,0,0,.55);
+}
+[data-theme="light"]{
+  --accent:#6030d4; --accent2:#085a68; --ok:#06603f; --warn:#7a4b00; --err:#a5183a;
+  --bg:#eef1f9; --bg2:#ffffff; --bg3:#f6f8fd;
+  --card:rgba(255,255,255,.9); --card2:rgba(255,255,255,.62);
+  --line:rgba(18,26,48,.10); --line2:rgba(18,26,48,.065);
+  --txt:#111828; --muted:#525d75; --faint:#6f7b93;
+  --input:rgba(18,26,48,.045);
+  --glow:inset 0 1px 0 rgba(255,255,255,.9);
+  --shadow:0 16px 42px rgba(25,35,70,.13);
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{height:100%}
+body{
+  margin:0;font-family:var(--font);color:var(--txt);background:var(--bg);overflow:hidden;
+  -webkit-font-smoothing:antialiased;transition:background .35s var(--ease),color .35s var(--ease);
+}
+body::before{
+  content:"";position:fixed;inset:-35%;z-index:-2;
+  background:
+    radial-gradient(36% 40% at 80% 4%, color-mix(in srgb,var(--accent) 40%,transparent), transparent 68%),
+    radial-gradient(32% 38% at 8% 96%, color-mix(in srgb,var(--accent2) 30%,transparent), transparent 70%),
+    radial-gradient(26% 30% at 50% 50%, color-mix(in srgb,var(--accent) 12%,transparent), transparent 72%),
+    var(--bg);
+  animation:drift 26s ease-in-out infinite alternate;
+}
+@keyframes drift{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(-2.5%,2%,0) scale(1.06)}}
+body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:linear-gradient(180deg,transparent 35%,color-mix(in srgb,var(--bg) 78%,transparent))}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:99px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--faint);background-clip:content-box}
+::selection{background:color-mix(in srgb,var(--accent) 45%,transparent)}
+:focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 70%,transparent);outline-offset:2px}
+
+/* ============================ top progress ============================ */
+#topbar{position:fixed;top:0;inset-inline:0;height:2.5px;z-index:70;background:transparent;pointer-events:none}
+#topfill{height:100%;width:0;border-radius:0 0 4px 4px;opacity:0;
+  background:linear-gradient(90deg,var(--accent),var(--accent2),var(--accent));background-size:200% 100%;
+  box-shadow:0 0 14px color-mix(in srgb,var(--accent2) 70%,transparent);
+  transition:width .45s var(--ease),opacity .3s;animation:flow 2.4s linear infinite}
+@keyframes flow{to{background-position:-200% 0}}
+
+/* ============================ layout ============================ */
+.app{height:100vh;display:flex;flex-direction:column;max-width:1200px;margin:0 auto;padding:16px 22px 0}
+header{display:flex;align-items:center;gap:9px;padding:2px 2px 15px}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.logo{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;flex:none;position:relative;
+  background:linear-gradient(145deg,var(--accent),var(--accent2));
+  box-shadow:0 10px 26px color-mix(in srgb,var(--accent) 45%,transparent),var(--glow)}
+.logo::after{content:"";position:absolute;inset:0;border-radius:13px;
+  background:linear-gradient(180deg,rgba(255,255,255,.28),transparent 55%)}
+.logo svg{width:21px;height:21px;fill:#fff;position:relative;z-index:1}
+.brand h1{font-size:17.5px;margin:0;letter-spacing:.1px;font-weight:680;
+  background:linear-gradient(100deg,var(--txt),color-mix(in srgb,var(--txt) 55%,var(--accent2)));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.brand small{display:block;color:var(--faint);font-size:11px;font-weight:500;letter-spacing:.25px;margin-top:1px}
+.grow{flex:1}
+.chip{display:inline-flex;align-items:center;gap:7px;height:33px;padding:0 13px;border-radius:99px;
+  background:var(--card);border:1px solid var(--line);color:var(--muted);font:inherit;font-size:12.5px;box-shadow:var(--glow);
+  cursor:pointer;transition:.18s var(--ease);max-width:270px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--line));color:var(--txt);transform:translateY(-1px)}
+.chip .dot{width:7px;height:7px;border-radius:99px;background:var(--ok);flex:none;box-shadow:0 0 9px var(--ok);
+  animation:beat 2.6s ease-in-out infinite}
+@keyframes beat{0%,100%{opacity:1}50%{opacity:.45}}
+.chip.bad .dot{background:var(--err);box-shadow:0 0 9px var(--err)}
+.chip.upd{color:#fff;border-color:transparent;font-weight:650;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 45%,transparent);animation:updpulse 2.4s ease-in-out infinite}
+.chip.upd:hover{color:#fff;filter:brightness(1.1);transform:translateY(-1px)}
+@keyframes updpulse{0%,100%{box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 40%,transparent)}
+  50%{box-shadow:0 6px 26px color-mix(in srgb,var(--accent2) 65%,transparent)}}
+.iconbtn{width:35px;height:35px;border-radius:12px;display:grid;place-items:center;flex:none;box-shadow:var(--glow);
+  background:var(--card);border:1px solid var(--line);color:var(--muted);cursor:pointer;transition:.18s var(--ease);font-size:15px}
+.iconbtn:hover{color:var(--txt);border-color:color-mix(in srgb,var(--accent) 55%,var(--line));transform:translateY(-1px)}
+.iconbtn:active{transform:scale(.94)}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  backdrop-filter:blur(22px) saturate(1.25);-webkit-backdrop-filter:blur(22px) saturate(1.25);
+  box-shadow:var(--shadow),var(--glow)}
+
+/* ============================ composer ============================ */
+.composer{padding:15px;margin-bottom:13px;position:relative;overflow:hidden}
+.composer::before{content:"";position:absolute;inset-inline:0;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--accent) 60%,transparent),transparent)}
+.crow{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.crow label{font-size:12.5px;color:var(--muted);font-weight:650;letter-spacing:.1px}
+.crow .kb{font-size:10.5px;color:var(--faint)}
+.count{margin-inline-start:auto;font-size:11.5px;color:var(--faint);font-weight:600;
+  background:var(--input);border:1px solid var(--line2);padding:3.5px 11px;border-radius:99px;transition:.25s var(--ease)}
+.count.on{color:#fff;border-color:transparent;background:linear-gradient(135deg,var(--accent),var(--accent2));
+  box-shadow:0 4px 14px color-mix(in srgb,var(--accent) 35%,transparent)}
+textarea#urls{
+  width:100%;min-height:80px;max-height:190px;resize:vertical;padding:13px 14px;color:var(--txt);
+  background:var(--input);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--glow);
+  font:inherit;font-size:13.5px;line-height:1.7;direction:ltr;text-align:left;transition:.2s var(--ease);outline:none}
+textarea#urls::placeholder{color:var(--faint);direction:rtl;text-align:right}
+textarea#urls:focus{border-color:color-mix(in srgb,var(--accent) 65%,transparent);background:var(--card2);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 13%,transparent)}
+
+.tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:11px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:37px;padding:0 15px;
+  border-radius:var(--r3);border:1px solid var(--line);background:var(--input);color:var(--txt);box-shadow:var(--glow);
+  font:inherit;font-size:13px;font-weight:560;cursor:pointer;transition:.18s var(--ease);white-space:nowrap}
+.btn:hover{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));transform:translateY(-1px);
+  background:var(--card2)}
+.btn:active{transform:translateY(0) scale(.985)}
+.btn.primary{background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent2) 62%,var(--accent)));
+  border:none;color:#fff;padding:0 19px;box-shadow:0 10px 24px color-mix(in srgb,var(--accent) 42%,transparent)}
+.btn.primary:hover{box-shadow:0 14px 30px color-mix(in srgb,var(--accent) 55%,transparent);filter:brightness(1.06)}
+.btn.sm{height:31px;padding:0 12px;font-size:12px;border-radius:9px}
+.btn.danger:hover{border-color:color-mix(in srgb,var(--err) 60%,transparent);color:var(--err)}
+.btn .ic{font-size:14px;line-height:1}
+
+.seg{display:inline-flex;background:var(--input);border:1px solid var(--line);border-radius:var(--r3);padding:3px;gap:3px;
+  box-shadow:var(--glow)}
+.seg button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:650;
+  padding:6px 15px;border-radius:7px;cursor:pointer;transition:.18s var(--ease);display:flex;align-items:center;gap:6px}
+.seg button.on{background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent2) 55%,var(--accent)));
+  color:#fff;box-shadow:0 5px 14px color-mix(in srgb,var(--accent) 38%,transparent)}
+.seg button:not(.on):hover{color:var(--txt);background:var(--card2)}
+
+.field{display:inline-flex;align-items:center;gap:6px;height:37px;padding:0 8px;position:relative;box-shadow:var(--glow);
+  background:var(--input);border:1px solid var(--line);border-radius:var(--r3);transition:.18s var(--ease)}
+.field:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.field:focus-within{border-color:color-mix(in srgb,var(--accent) 60%,transparent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}
+.field > span{font-size:11px;color:var(--faint);font-weight:700;letter-spacing:.2px;text-transform:uppercase;opacity:.9}
+select,input[type=text],input[type=number]{
+  background:transparent;border:0;color:var(--txt);font:inherit;font-size:12.5px;font-weight:550;outline:none;
+  cursor:pointer;padding:6px 2px;border-radius:6px;max-width:190px}
+select{appearance:none;-webkit-appearance:none;padding-inline-end:16px}
+.field.sel::after{content:"";position:absolute;inset-inline-end:9px;top:50%;width:6px;height:6px;pointer-events:none;
+  border-inline-end:1.6px solid var(--faint);border-bottom:1.6px solid var(--faint);
+  transform:translateY(-70%) rotate(45deg)}
+select option{background:var(--bg3);color:var(--txt)}
+input[type=text],input[type=number]{cursor:text;font-weight:500}
+.sep{width:1px;height:24px;background:var(--line);margin:0 3px}
+
+.switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:var(--muted);
+  user-select:none;padding:7px 11px;border-radius:var(--r3);transition:.18s var(--ease);border:1px solid transparent}
+.switch:hover{color:var(--txt);background:var(--card2);border-color:var(--line2)}
+.switch input{position:absolute;opacity:0;width:0;height:0;pointer-events:none}
+.switch:has(input:focus-visible) i{outline:2px solid color-mix(in srgb,var(--accent) 70%,transparent);outline-offset:2px}
+.switch i{width:35px;height:20px;border-radius:99px;background:var(--line);position:relative;transition:.24s var(--ease);flex:none}
+.switch i::after{content:"";position:absolute;top:2.5px;inset-inline-end:2.5px;width:15px;height:15px;border-radius:99px;
+  background:var(--muted);transition:.24s var(--ease)}
+.switch input:checked + i{background:linear-gradient(135deg,var(--accent),var(--accent2));
+  box-shadow:0 3px 10px color-mix(in srgb,var(--accent) 40%,transparent)}
+.switch input:checked + i::after{inset-inline-end:17.5px;background:#fff}
+.switch input:checked ~ b{color:var(--txt)}
+.switch b{font-weight:560}
+
+.presets{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+.presets .lbl{font-size:11px;color:var(--faint);font-weight:650;margin-inline-end:2px}
+.pz{border:1px dashed var(--line);background:transparent;color:var(--muted);font:inherit;font-size:11.5px;
+  font-weight:600;padding:5px 11px;border-radius:99px;cursor:pointer;transition:.18s var(--ease)}
+.pz:hover{color:var(--txt);border-style:solid;border-color:color-mix(in srgb,var(--accent) 55%,var(--line));
+  background:var(--card2);transform:translateY(-1px)}
+.pz.on{color:#fff;border:1px solid transparent;background:linear-gradient(135deg,var(--accent),var(--accent2));
+  box-shadow:0 5px 14px color-mix(in srgb,var(--accent) 35%,transparent)}
+
+.adv{overflow:hidden;max-height:0;transition:max-height .3s var(--ease);border-top:1px solid transparent}
+.adv.open{max-height:220px;border-top-color:var(--line2);margin-top:11px;padding-top:11px}
+.adv .tools{margin-top:0}
+
+/* ============================ progress dock ============================ */
+.dock{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center;padding:13px 16px;margin-bottom:12px;
+  animation:pop .3s var(--ease)}
+.dock[hidden]{display:none}
+.dock .vsep{width:1px;align-self:stretch;background:var(--line2)}
+.prog{min-width:0;display:flex;flex-direction:column;gap:7px}
+.prog .ph{display:flex;align-items:baseline;gap:9px;min-width:0}
+.prog .lb{font-size:10.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;flex:none;
+  color:var(--faint)}
+.prog.cur .lb{color:color-mix(in srgb,var(--accent2) 80%,var(--txt))}
+.prog .nm{font-size:12.5px;font-weight:600;color:var(--txt);flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prog .pc{font-size:14px;font-weight:750;flex:none;font-variant-numeric:tabular-nums;
+  background:linear-gradient(120deg,var(--accent),var(--accent2));-webkit-background-clip:text;
+  background-clip:text;color:transparent}
+.prog .bar{height:9px;border-radius:99px;background:var(--input);overflow:hidden;position:relative;box-shadow:var(--glow)}
+.prog .fill{height:100%;width:0;border-radius:99px;transition:width .45s var(--ease);position:relative;
+  background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.prog .fill.live::after{content:"";position:absolute;inset:0;border-radius:99px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:sheen 1.4s linear infinite}
+.prog .fill.q{background:linear-gradient(90deg,color-mix(in srgb,var(--ok) 75%,var(--accent2)),var(--ok))}
+.prog .sub > span{unicode-bidi:isolate}
+.prog .sub > .d{opacity:.45;font-style:normal}
+.prog .sub{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;display:flex;gap:8px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:13px}
+.prog .sub b{color:var(--muted);font-weight:650}
+.prog .pill{background:var(--input);border:1px solid var(--line2);border-radius:99px;padding:1px 8px;
+  font-size:10.5px;font-weight:650;color:var(--muted);flex:none}
+@media(max-width:900px){.dock{grid-template-columns:1fr}.dock .vsep{display:none}}
+
+/* ============================ queue ============================ */
+.qhead{display:flex;align-items:center;gap:8px;padding:2px 4px 11px}
+.tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);padding:3px;border-radius:var(--r2);
+  box-shadow:var(--glow)}
+.tabs button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:650;
+  padding:6px 13px;border-radius:9px;cursor:pointer;transition:.18s var(--ease);display:flex;align-items:center;gap:6px}
+.tabs button.on{background:var(--input);color:var(--txt);box-shadow:var(--glow)}
+.tabs button:not(.on):hover{color:var(--txt)}
+.tabs button b{font-size:10px;background:var(--line);padding:1.5px 6px;border-radius:99px;color:var(--muted);font-weight:800}
+.tabs button.on b{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+
+.list{flex:1;overflow-y:auto;overflow-x:hidden;padding:2px 4px 16px;display:flex;flex-direction:column;gap:9px;
+  scroll-behavior:smooth}
+.item{display:flex;gap:13px;padding:12px;border-radius:15px;background:var(--card);border:1px solid var(--line);
+  box-shadow:var(--glow);animation:pop .32s var(--ease);position:relative;overflow:hidden;transition:.2s var(--ease)}
+.item:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line));transform:translateY(-1px);
+  box-shadow:0 10px 26px rgba(0,0,0,.22),var(--glow)}
+@keyframes pop{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
+.item::before{content:"";position:absolute;inset-inline-start:0;top:0;bottom:0;width:3px;background:var(--line);transition:.25s}
+.item[data-s="downloading"]::before,.item[data-s="processing"]::before{background:linear-gradient(var(--accent),var(--accent2))}
+.item[data-s="done"]::before{background:var(--ok)}
+.item[data-s="error"]::before{background:var(--err)}
+.item[data-s="canceled"]::before{background:var(--faint)}
+.item[data-s="downloading"],.item[data-s="processing"]{
+  background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 7%,var(--card)),var(--card) 40%)}
+
+.thumb{width:112px;height:64px;border-radius:11px;background:var(--input);flex:none;overflow:hidden;position:relative;
+  display:grid;place-items:center;border:1px solid var(--line2)}
+.thumb img{width:100%;height:100%;object-fit:cover;transition:transform .35s var(--ease)}
+.item:hover .thumb img{transform:scale(1.06)}
+.thumb .ph{font-size:19px;opacity:.32}
+.thumb .dur{position:absolute;bottom:4px;inset-inline-end:4px;background:rgba(0,0,0,.8);color:#fff;
+  font-size:10px;padding:1.5px 5px;border-radius:5px;font-variant-numeric:tabular-nums;letter-spacing:.2px}
+.body{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px;justify-content:center}
+.r1{display:flex;align-items:center;gap:8px}
+.title{font-size:13.5px;font-weight:620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.badge{font-size:10.5px;font-weight:750;padding:3.5px 10px;border-radius:99px;flex:none;letter-spacing:.2px;
+  background:var(--input);color:var(--muted);border:1px solid var(--line2)}
+.badge.dl{color:var(--accent2);border-color:color-mix(in srgb,var(--accent2) 42%,transparent);
+  background:color-mix(in srgb,var(--accent2) 13%,transparent)}
+.badge.pp{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 42%,transparent);
+  background:color-mix(in srgb,var(--warn) 13%,transparent)}
+.badge.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 42%,transparent);
+  background:color-mix(in srgb,var(--ok) 13%,transparent)}
+.badge.er{color:var(--err);border-color:color-mix(in srgb,var(--err) 42%,transparent);
+  background:color-mix(in srgb,var(--err) 13%,transparent)}
+.meta > *{unicode-bidi:isolate}
+.meta{font-size:11.5px;color:var(--faint);display:flex;gap:7px;align-items:center;flex-wrap:wrap;min-height:15px}
+.meta .tag{background:var(--input);border:1px solid var(--line2);padding:2px 9px;border-radius:99px;color:var(--muted);
+  font-weight:600;font-size:11px}
+.meta .err{color:var(--err);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.bar{height:6px;border-radius:99px;background:var(--input);overflow:hidden;position:relative;box-shadow:var(--glow)}
+.fill{height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--accent),var(--accent2));
+  transition:width .4s var(--ease);position:relative}
+.item[data-s="downloading"] .fill::after,.item[data-s="processing"] .fill::after{
+  content:"";position:absolute;inset:0;border-radius:99px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:sheen 1.4s linear infinite}
+@keyframes sheen{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.item[data-s="processing"] .bar{background:color-mix(in srgb,var(--warn) 16%,var(--input))}
+.item[data-s="done"] .fill{background:linear-gradient(90deg,var(--ok),color-mix(in srgb,var(--ok) 55%,var(--accent2)))}
+.item[data-s="error"] .fill{background:var(--err)}
+.item[data-s="canceled"] .fill{background:var(--faint)}
+.r2{display:flex;align-items:center;gap:8px}
+.stats{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;flex:1;font-weight:520;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acts{display:flex;gap:5px;opacity:.72;transition:.18s var(--ease)}
+.item:hover .acts,.item[data-s="error"] .acts{opacity:1}
+.mini{width:29px;height:29px;border-radius:9px;border:1px solid var(--line);background:var(--input);
+  color:var(--muted);cursor:pointer;font-size:12.5px;display:grid;place-items:center;transition:.18s var(--ease);flex:none}
+.mini:hover{color:var(--txt);border-color:color-mix(in srgb,var(--accent) 55%,var(--line));transform:translateY(-1px)}
+.mini:active{transform:scale(.92)}
+.mini.x:hover{color:var(--err);border-color:color-mix(in srgb,var(--err) 55%,var(--line))}
+.mini.go:hover{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,var(--line))}
+
+.empty{margin:auto;text-align:center;color:var(--faint);padding:44px 20px;animation:pop .45s var(--ease)}
+.empty .big{font-size:52px;margin-bottom:14px;opacity:.45;animation:float 4.5s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+.empty h3{margin:0 0 7px;color:var(--muted);font-size:15.5px;font-weight:650}
+.empty p{margin:0;font-size:12.5px;line-height:1.9}
+kbd{background:var(--input);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;
+  padding:1.5px 7px;font-size:11px;font-family:inherit;color:var(--muted);font-weight:600}
+
+/* ============================ footer ============================ */
+footer{flex:none;display:flex;align-items:center;gap:10px;padding:10px 4px 12px;font-size:12.5px;color:var(--faint);
+  border-top:1px solid var(--line2)}
+footer .st{display:flex;gap:12px;align-items:center}
+footer .st b{color:var(--muted);font-weight:700}
+footer .credit{margin-inline-start:auto;display:flex;align-items:center;gap:6px;letter-spacing:.2px}
+footer a{position:relative;font-weight:800;text-decoration:none;cursor:pointer;font-size:15px;
+  display:inline-flex;align-items:center;gap:7px;
+  background:linear-gradient(115deg,var(--accent),var(--accent2));-webkit-background-clip:text;
+  background-clip:text;color:transparent;transition:.2s var(--ease)}
+footer a::after{content:"";position:absolute;inset-inline:0;bottom:-2px;height:1.5px;border-radius:2px;opacity:0;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));transition:.2s var(--ease)}
+footer a:hover::after{opacity:1}
+footer a:hover{filter:brightness(1.3) saturate(1.35)}
+footer a img{width:20px;height:20px;border-radius:5px;flex:none;
+  box-shadow:0 2px 8px rgba(0,0,0,.35);transition:transform .2s var(--ease)}
+footer a:hover img{transform:scale(1.12) rotate(-4deg)}
+footer .credit > span{font-size:12.5px}
+
+/* ============================ modals ============================ */
+.scrim{position:fixed;inset:0;background:rgba(3,6,14,.66);backdrop-filter:blur(7px);z-index:40;
+  display:none;align-items:center;justify-content:center;padding:26px;animation:fade .2s}
+.scrim.open{display:flex}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.modal{width:min(740px,100%);max-height:86vh;display:flex;flex-direction:column;border-radius:20px;
+  background:var(--bg2);border:1px solid var(--line);box-shadow:0 34px 90px rgba(0,0,0,.6),var(--glow);
+  animation:rise .26s var(--ease)}
+@keyframes rise{from{opacity:0;transform:translateY(18px) scale(.975)}to{opacity:1;transform:none}}
+.modal h2{margin:0;font-size:15.5px;font-weight:680}
+.mhead{display:flex;align-items:center;gap:10px;padding:17px 19px;border-bottom:1px solid var(--line2)}
+.mhead p{margin:3px 0 0;font-size:11.5px;color:var(--faint);font-weight:400;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:520px}
+.mbody{padding:15px 19px;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+.mfoot{padding:14px 19px;border-top:1px solid var(--line2);display:flex;gap:8px;align-items:center}
+.prow{padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--card2);transition:.18s var(--ease)}
+.prow:hover{border-color:color-mix(in srgb,var(--accent) 30%,var(--line))}
+.prow .u{font-size:11.5px;color:var(--faint);direction:ltr;text-align:left;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;margin-bottom:10px;font-weight:500}
+.prow .n{display:inline-block;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:99px;
+  background:var(--input);color:var(--muted);font-size:10px;font-weight:800;margin-inline-end:7px;padding:0 5px}
+.prow .tools{margin:0;gap:7px}
+.srow{display:flex;align-items:center;gap:12px;padding:9px 2px}
+.srow > label{font-size:12.5px;color:var(--muted);width:136px;flex:none;font-weight:600}
+.srow .field{flex:1}
+.srow .field input{max-width:none;width:100%}
+.hint{font-size:11px;color:var(--faint);margin-top:-4px;padding:0 2px 6px;line-height:1.7}
+.hint code{background:var(--input);padding:1px 5px;border-radius:5px;font-size:10.5px}
+
+/* ============================ toasts / clip / drop ============================ */
+#toasts{position:fixed;bottom:20px;inset-inline-start:20px;display:flex;flex-direction:column;gap:9px;z-index:60}
+.toast{background:var(--bg2);border:1px solid var(--line);border-inline-start:3px solid var(--accent);
+  padding:12px 15px;border-radius:13px;font-size:12.5px;box-shadow:var(--shadow);animation:slide .28s var(--ease);
+  display:flex;gap:10px;align-items:center;max-width:360px}
+.toast.ok{border-inline-start-color:var(--ok)} .toast.er{border-inline-start-color:var(--err)}
+.toast .tx{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@keyframes slide{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.toast.out{opacity:0;transform:translateY(10px);transition:.26s var(--ease)}
+
+body:has(.scrim.open) #clipbar{display:none !important}
+#clipbar{position:fixed;bottom:20px;inset-inline-end:20px;z-index:55;display:none;align-items:center;gap:10px;
+  background:var(--bg2);border:1px solid color-mix(in srgb,var(--accent) 48%,var(--line));
+  padding-block:9px;padding-inline:15px 10px;
+  border-radius:15px;box-shadow:var(--shadow);animation:slide .28s var(--ease);max-width:430px}
+#clipbar.on{display:flex}
+#clipbar .t{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:230px;direction:ltr}
+
+#drop{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;
+  background:color-mix(in srgb,var(--bg) 78%,transparent);backdrop-filter:blur(8px)}
+#drop.on{display:flex;animation:fade .15s}
+#drop .in{border:2px dashed color-mix(in srgb,var(--accent) 65%,transparent);border-radius:22px;padding:44px 66px;
+  text-align:center;background:var(--card);box-shadow:var(--shadow)}
+#drop .in div:first-child{font-size:44px;margin-bottom:10px}
+#drop .in b{font-size:15px;font-weight:650}
+</style>
+</head>
+<body>
+<div id="topbar"><div id="topfill"></div></div>
+
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24"><path d="M12 3a1 1 0 0 1 1 1v9.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.4L11 13.6V4a1 1 0 0 1 1-1zM5 19a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1z"/></svg></div>
+      <div>
+        <h1>YT-DLP Studio</h1>
+        <small id="ver">מנוע yt-dlp</small>
+      </div>
+    </div>
+    <div class="grow"></div>
+    <button type="button" class="chip upd" id="updchip" hidden title="גרסה חדשה זמינה"><span>⬆</span><span id="updtxt"></span></button>
+    <button type="button" class="chip" id="ffchip" title="מצב FFmpeg"><span class="dot"></span><span id="fftxt">FFmpeg</span></button>
+    <button type="button" class="chip" id="folderchip" title="לחץ לשינוי תיקיית היעד">📁 <span id="foldertxt">…</span></button>
+    <button class="iconbtn" id="openfolder" title="פתח את תיקיית ההורדות">↗</button>
+    <button class="iconbtn" id="themebtn" title="החלף ערכת נושא">◐</button>
+    <button class="iconbtn" id="setbtn" title="הגדרות">⚙</button>
+  </header>
+
+  <section class="card composer">
+    <div class="crow">
+      <label for="urls">קישורים להורדה</label>
+      <span class="kb"><kbd>Enter</kbd> להוספה · <kbd>Shift</kbd>+<kbd>Enter</kbd> שורה חדשה · <kbd>Ctrl</kbd>+<kbd>V</kbd> הדבקה</span>
+      <span class="count" id="count">0 קישורים</span>
+    </div>
+    <textarea id="urls" spellcheck="false" placeholder="הדבק כאן קישור אחד או יותר — הפרדה ברווח, פסיק או שורה חדשה. אפשר להוסיף קישורים גם בזמן שהורדות רצות."></textarea>
+
+    <div class="tools">
+      <button class="btn" id="pastebtn"><span class="ic">📋</span> הדבק קישור</button>
+      <button class="btn" id="clearbox"><span class="ic">✕</span> נקה</button>
+      <div class="sep"></div>
+      <div class="seg" id="kindseg">
+        <button data-k="video" class="on">🎬 וידאו</button>
+        <button data-k="audio">🎵 אודיו</button>
+      </div>
+      <div class="field sel vidonly"><span>איכות</span>
+        <select id="quality">
+          <option value="best">מיטבית</option>
+          <option value="2160">4K · 2160p</option>
+          <option value="1440">2K · 1440p</option>
+          <option value="1080" selected>Full HD · 1080p</option>
+          <option value="720">HD · 720p</option>
+          <option value="480">480p</option>
+          <option value="360">360p</option>
+        </select>
+      </div>
+      <div class="field sel vidonly"><span>פורמט</span>
+        <select id="container"><option value="mp4">MP4</option><option value="mkv">MKV</option><option value="webm">WEBM</option></select>
+      </div>
+      <div class="field sel audonly" hidden><span>קודק</span>
+        <select id="acodec">
+          <option value="mp3">MP3</option><option value="m4a">M4A / AAC</option><option value="opus">OPUS</option>
+          <option value="flac">FLAC</option><option value="wav">WAV</option><option value="best">מקורי (ללא המרה)</option>
+        </select>
+      </div>
+      <div class="field sel audonly" hidden><span>קצב</span>
+        <select id="abr"><option value="320">320 kbps</option><option value="256">256 kbps</option>
+          <option value="192" selected>192 kbps</option><option value="128">128 kbps</option><option value="96">96 kbps</option></select>
+      </div>
+      <button class="btn sm" id="advbtn">⋯ מתקדם</button>
+      <div class="grow"></div>
+      <label class="switch" title="כשמופעל — בכל הוספה תיפתח בחירת איכות נפרדת לכל קישור">
+        <input type="checkbox" id="peritem"><i></i><b>איכות נפרדת לכל הורדה</b>
+      </label>
+      <button class="btn primary" id="addbtn">הוסף לתור <span class="ic">↓</span></button>
+    </div>
+
+    <div class="presets" id="presets">
+      <span class="lbl">קיצורים:</span>
+      <button class="pz" data-p='{"kind":"video","quality":"best","container":"mp4"}'>מיטבי</button>
+      <button class="pz" data-p='{"kind":"video","quality":"2160","container":"mp4"}'>4K</button>
+      <button class="pz" data-p='{"kind":"video","quality":"1080","container":"mp4"}'>1080p MP4</button>
+      <button class="pz" data-p='{"kind":"video","quality":"720","container":"mp4"}'>720p MP4</button>
+      <button class="pz" data-p='{"kind":"audio","acodec":"mp3","abr":"320"}'>MP3 320</button>
+      <button class="pz" data-p='{"kind":"audio","acodec":"mp3","abr":"192"}'>MP3 192</button>
+      <button class="pz" data-p='{"kind":"audio","acodec":"m4a","abr":"256"}'>M4A 256</button>
+    </div>
+
+    <div class="adv" id="adv">
+      <div class="tools">
+        <label class="switch"><input type="checkbox" id="playlist"><i></i><b>הורד פלייליסט מלא</b></label>
+        <label class="switch"><input type="checkbox" id="subs"><i></i><b>כתוביות מוטמעות</b></label>
+        <label class="switch"><input type="checkbox" id="thumb" checked><i></i><b>תמונה ממוזערת</b></label>
+        <label class="switch"><input type="checkbox" id="metadata" checked><i></i><b>מטא-דאטה</b></label>
+        <label class="switch"><input type="checkbox" id="sponsorblock"><i></i><b>דלג על חסויות</b></label>
+        <div class="field"><span>כתוביות</span><input type="text" id="sublangs" value="he,en" style="width:86px" dir="ltr"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card dock" id="dock" hidden>
+    <div class="prog cur">
+      <div class="ph"><span class="lb">הורדה נוכחית</span><span class="nm" id="curname">—</span><span class="pc" id="curpc">0%</span></div>
+      <div class="bar"><div class="fill" id="curfill"></div></div>
+      <div class="sub" id="cursub"></div>
+    </div>
+    <div class="vsep"></div>
+    <div class="prog all">
+      <div class="ph"><span class="lb">התור כולו</span><span class="nm" id="allname"></span><span class="pc" id="allpc">0%</span></div>
+      <div class="bar"><div class="fill q" id="allfill"></div></div>
+      <div class="sub" id="allsub"></div>
+    </div>
+  </section>
+
+  <div class="qhead">
+    <div class="tabs" id="tabs">
+      <button data-f="all" class="on">הכל</button>
+      <button data-f="active">פעילות</button>
+      <button data-f="done">הושלמו</button>
+      <button data-f="error">שגיאות</button>
+    </div>
+    <div class="grow"></div>
+    <span class="chip" id="speedchip" style="display:none;cursor:default">⚡ <span id="speedtxt"></span></span>
+    <button class="btn sm danger" id="cancelall">עצור הכל</button>
+    <button class="btn sm" id="clrdone">נקה שהושלמו</button>
+  </div>
+
+  <div class="list" id="list"></div>
+
+  <footer>
+    <div class="st" id="fstats"></div>
+    <div class="credit"><span>יוצר התוכנה</span><a href="https://tsoolgee.uk" id="credit"><img src="data:image/png;base64,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" alt=""><span>צול-גאה</span></a></div>
+  </footer>
+</div>
+
+<!-- per-item modal -->
+<div class="scrim" id="pmodal">
+  <div class="modal">
+    <div class="mhead">
+      <div style="flex:1;min-width:0">
+        <h2 id="ptitle">איכות נפרדת לכל הורדה</h2>
+        <p id="psub">בחר הגדרות שונות לכל קישור לפני ההוספה לתור</p>
+      </div>
+      <button class="iconbtn" data-close>✕</button>
+    </div>
+    <div class="mbody" id="pbody"></div>
+    <div class="mfoot">
+      <button class="btn sm" id="applyall">החל את הראשון על כולם</button>
+      <div class="grow"></div>
+      <button class="btn" data-close>ביטול</button>
+      <button class="btn primary" id="pconfirm">אישור</button>
+    </div>
+  </div>
+</div>
+
+<!-- settings -->
+<div class="scrim" id="smodal">
+  <div class="modal" style="width:min(620px,100%)">
+    <div class="mhead">
+      <div style="flex:1"><h2>הגדרות</h2><p>נשמרות אוטומטית בין הפעלות</p></div>
+      <button class="iconbtn" data-close>✕</button>
+    </div>
+    <div class="mbody">
+      <div class="srow"><label>תיקיית יעד</label>
+        <div class="field"><input type="text" id="s_folder"></div>
+        <button class="btn sm" id="browse">עיון…</button>
+      </div>
+      <div class="srow"><label>הורדות במקביל</label>
+        <div class="field"><input type="number" id="s_conc" min="1" max="8" style="width:64px"><span>בו-זמנית</span></div>
+      </div>
+      <div class="srow"><label>הגבלת מהירות</label>
+        <div class="field"><input type="text" id="s_rate" placeholder="ריק = ללא הגבלה" dir="ltr"><span>2M / 500K</span></div>
+      </div>
+      <div class="srow"><label>עוגיות מדפדפן</label>
+        <div class="field sel"><select id="s_cookies">
+          <option value="">ללא</option><option value="chrome">Chrome</option><option value="edge">Edge</option>
+          <option value="firefox">Firefox</option><option value="brave">Brave</option><option value="opera">Opera</option>
+          <option value="vivaldi">Vivaldi</option></select></div>
+      </div>
+      <p class="hint">עוגיות נדרשות לסרטונים מוגבלי גיל או פרטיים. הדפדפן צריך להיות סגור בזמן ההורדה.</p>
+      <div class="srow"><label>תבנית שם קובץ</label>
+        <div class="field"><input type="text" id="s_tmpl" dir="ltr"></div>
+      </div>
+      <p class="hint">משתני yt-dlp — למשל <code dir="ltr">%(title)s [%(id)s].%(ext)s</code></p>
+      <div class="srow"><label>נתיב FFmpeg</label>
+        <div class="field"><input type="text" id="s_ffmpeg" dir="ltr" placeholder="ריק = איתור אוטומטי"></div>
+      </div>
+      <p class="hint" id="ffhint"></p>
+      <div class="srow"><label>גרסת התוכנה</label>
+        <div class="field"><input type="text" id="s_ver" readonly dir="ltr" style="cursor:default"></div>
+        <button class="btn sm" id="checkupd">בדוק עדכון</button>
+      </div>
+      <p class="hint" id="updhint"></p>
+    </div>
+    <div class="mfoot">
+      <button class="btn sm danger" id="clearall">נקה את כל התור</button>
+      <div class="grow"></div>
+      <button class="btn primary" data-close>סגור</button>
+    </div>
+  </div>
+</div>
+
+<div id="clipbar">
+  <span>📋</span><span class="t" id="cliptxt"></span>
+  <button class="btn sm primary" id="clipadd">הוסף</button>
+  <button class="iconbtn" id="clipno" style="width:29px;height:29px">✕</button>
+</div>
+<div id="drop"><div class="in"><div>⬇</div><b>שחרר כאן כדי להוסיף קישורים</b></div></div>
+<div id="toasts"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+
+/* הגשר לפייתון - pywebview, בלי HTTP ובלי פורט מקומי */
+const bridge = new Promise(res => {
+  if(window.pywebview && window.pywebview.api) return res();
+  window.addEventListener("pywebviewready", () => res(), {once:true});
+});
+async function api(path, body){
+  await bridge;
+  const r = await window.pywebview.api.rpc(path, body === undefined ? null : body);
+  if(r && r.__error) throw new Error(r.__error);
+  return r;
+}
+function toast(msg, kind="", action){
+  const el = document.createElement("div");
+  el.className = "toast " + kind;
+  el.innerHTML = `<span>${kind==="er"?"⚠":kind==="ok"?"✓":"ℹ"}</span><span class="tx">${msg}</span>`;
+  if(action){
+    const b = document.createElement("button");
+    b.className = "btn sm"; b.textContent = action.label;
+    b.onclick = () => { action.fn(); el.remove(); };
+    el.appendChild(b);
+  }
+  $("#toasts").appendChild(el);
+  setTimeout(()=>{el.classList.add("out"); setTimeout(()=>el.remove(),280)}, action ? 6000 : 3200);
+}
+const URL_RE = /(?:https?:\/\/|www\.)[^\s,;"'<>\]\[)(]+/gi;
+function urlsOf(t){
+  const out=[], seen=new Set();
+  for(const m of (t||"").match(URL_RE)||[]){
+    let u=m.trim().replace(/[.,;]+$/,"");
+    if(/^www\./i.test(u)) u="https://"+u;
+    if(!seen.has(u)){seen.add(u); out.push(u);}
+  }
+  return out;
+}
+const iso = s => "\u2066" + s + "\u2069";
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const fmtSize = n => !n ? "" : n<1024 ? n+" B" : n<1048576 ? (n/1024).toFixed(0)+" KB"
+  : n<1073741824 ? (n/1048576).toFixed(1)+" MB" : (n/1073741824).toFixed(2)+" GB";
+const fmtSpeed = n => !n ? "" : fmtSize(n)+"/ש";
+function fmtTime(s){
+  s = Math.max(0, Math.round(s||0));
+  const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60;
+  return h ? `${h}:${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}` : `${m}:${String(x).padStart(2,"0")}`;
+}
+
+/* ---------------- settings ---------------- */
+let S = {}, firstPaint = true;
+const CTRL = {
+  quality:"#quality", container:"#container", acodec:"#acodec", abr:"#abr",
+  playlist:"#playlist", subs:"#subs", thumb:"#thumb", metadata:"#metadata",
+  sponsorblock:"#sponsorblock", sublangs:"#sublangs", perItem:"#peritem"
+};
+function syncKind(k){
+  $$("#kindseg button").forEach(b => b.classList.toggle("on", b.dataset.k === k));
+  $$(".vidonly").forEach(e => e.hidden = k !== "video");
+  $$(".audonly").forEach(e => e.hidden = k !== "audio");
+  markPreset();
+}
+function markPreset(){
+  $$("#presets .pz").forEach(b => {
+    const p = JSON.parse(b.dataset.p);
+    const hit = Object.entries(p).every(([k,v]) => (k==="kind" ? S.kind : $(CTRL[k]) && $(CTRL[k]).value) === v);
+    b.classList.toggle("on", hit);
+  });
+}
+function applySettingsToUI(s){
+  S = Object.assign({}, s);
+  document.documentElement.dataset.theme = s.theme || "dark";
+  for(const [k,sel] of Object.entries(CTRL)){
+    const el = $(sel); if(!el) continue;
+    if(el.type === "checkbox") el.checked = !!s[k]; else el.value = s[k];
+  }
+  syncKind(s.kind);
+  $("#foldertxt").textContent = (s.folder||"").split(/[\\/]/).filter(Boolean).pop() || s.folder;
+  $("#folderchip").title = s.folder;
+  $("#s_folder").value = s.folder || "";
+  $("#s_conc").value = s.concurrency;
+  $("#s_rate").value = s.ratelimit || "";
+  $("#s_cookies").value = s.cookies || "";
+  $("#s_tmpl").value = s.template || "";
+  $("#s_ffmpeg").value = s.ffmpeg || "";
+}
+let saveT = null;
+function pushSettings(patch, instant){
+  Object.assign(S, patch);
+  markPreset();
+  clearTimeout(saveT);
+  const go = () => api("/api/settings", patch).catch(()=>{});
+  instant ? go() : saveT = setTimeout(go, 350);
+}
+function gather(){
+  const o = {kind: S.kind};
+  for(const k of ["quality","container","acodec","abr","sublangs"]) o[k] = $(CTRL[k]).value;
+  for(const k of ["playlist","subs","thumb","metadata","sponsorblock"]) o[k] = $(CTRL[k]).checked;
+  return o;
+}
+
+/* ---------------- composer ---------------- */
+const box = $("#urls");
+function refreshCount(){
+  const n = urlsOf(box.value).length;
+  const c = $("#count");
+  c.textContent = n ? (n===1 ? "קישור אחד מזוהה" : n + " קישורים מזוהים") : "0 קישורים";
+  c.classList.toggle("on", n>0);
+}
+box.addEventListener("input", refreshCount);
+box.addEventListener("keydown", e => {
+  if(e.key === "Enter" && !e.shiftKey && !e.isComposing){ e.preventDefault(); addFromBox(); }
+});
+$("#clearbox").onclick = () => { box.value=""; refreshCount(); box.focus(); };
+
+function appendUrls(list){
+  const have = new Set(urlsOf(box.value));
+  const add = list.filter(u => !have.has(u));
+  if(!add.length) return 0;
+  box.value = (box.value.trim() ? box.value.trim()+"\n" : "") + add.join("\n");
+  refreshCount(); box.scrollTop = box.scrollHeight;
+  return add.length;
+}
+$("#pastebtn").onclick = async () => {
+  let txt = "";
+  try { txt = await navigator.clipboard.readText(); } catch(e){}
+  if(!txt){ try { txt = (await api("/api/clipboard")).text || ""; } catch(e){} }
+  if(!txt){ toast("לא הצלחתי לקרוא את הלוח — נסה Ctrl+V", "er"); box.focus(); return; }
+  const found = urlsOf(txt);
+  if(!found.length){ toast("לא נמצא קישור בלוח", "er"); return; }
+  const n = appendUrls(found);
+  box.focus();
+  toast(n ? (n===1 ? "קישור הודבק" : n+" קישורים הודבקו") : "הקישור כבר בתיבה", n ? "ok" : "");
+};
+
+$$("#kindseg button").forEach(b => b.onclick = () => { S.kind = b.dataset.k; syncKind(S.kind); pushSettings({kind:S.kind}); });
+for(const [k,sel] of Object.entries(CTRL)){
+  const el = $(sel); if(!el) continue;
+  el.addEventListener("change", () => pushSettings({[k]: el.type==="checkbox" ? el.checked : el.value}));
+  if(el.tagName === "INPUT" && el.type === "text") el.addEventListener("input", () => pushSettings({[k]: el.value}));
+}
+$$("#presets .pz").forEach(b => b.onclick = () => {
+  const p = JSON.parse(b.dataset.p);
+  if(p.kind){ S.kind = p.kind; syncKind(p.kind); }
+  for(const [k,v] of Object.entries(p)) if(k !== "kind" && $(CTRL[k])) $(CTRL[k]).value = v;
+  pushSettings(p, true);
+});
+$("#advbtn").onclick = () => $("#adv").classList.toggle("open");
+
+async function addFromBox(){
+  const urls = urlsOf(box.value);
+  if(!urls.length){ toast("לא נמצאו קישורים תקינים", "er"); box.focus(); return; }
+  if($("#peritem").checked) return openPerItem(urls);
+  await send(urls.map(u => ({url:u, opts: gather()})));
+}
+async function send(items){
+  const r = await api("/api/add", {items});
+  box.value = ""; refreshCount();
+  toast(r.added===1 ? "נוסף לתור" : r.added + " פריטים נוספו לתור", "ok");
+  poll();
+}
+$("#addbtn").onclick = addFromBox;
+
+/* drag & drop */
+let dragN = 0;
+window.addEventListener("dragenter", e => { e.preventDefault(); if(++dragN===1) $("#drop").classList.add("on"); });
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("dragleave", e => { if(--dragN<=0){ dragN=0; $("#drop").classList.remove("on"); } });
+window.addEventListener("drop", e => {
+  e.preventDefault(); dragN = 0; $("#drop").classList.remove("on");
+  const txt = (e.dataTransfer && (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text"))) || "";
+  const f = urlsOf(txt);
+  if(!f.length) return toast("לא נמצא קישור בגרירה", "er");
+  const n = appendUrls(f);
+  toast(n ? n+" קישורים נוספו לתיבה" : "הקישור כבר בתיבה", n ? "ok" : "");
+});
+
+/* ---------------- per-item modal ---------------- */
+function optionsHTML(o){
+  const q = v => o.quality===v ? "selected" : "";
+  const c = v => o.container===v ? "selected" : "";
+  const a = v => o.acodec===v ? "selected" : "";
+  const b = v => o.abr===v ? "selected" : "";
+  return `
+  <div class="tools">
+    <div class="seg k">
+      <button data-k="video" class="${o.kind==="video"?"on":""}">🎬 וידאו</button>
+      <button data-k="audio" class="${o.kind==="audio"?"on":""}">🎵 אודיו</button>
+    </div>
+    <div class="field sel v" ${o.kind!=="video"?"hidden":""}><span>איכות</span><select class="q">
+      <option value="best" ${q("best")}>מיטבית</option><option value="2160" ${q("2160")}>2160p</option>
+      <option value="1440" ${q("1440")}>1440p</option><option value="1080" ${q("1080")}>1080p</option>
+      <option value="720" ${q("720")}>720p</option><option value="480" ${q("480")}>480p</option>
+      <option value="360" ${q("360")}>360p</option></select></div>
+    <div class="field sel v" ${o.kind!=="video"?"hidden":""}><span>פורמט</span><select class="c">
+      <option value="mp4" ${c("mp4")}>MP4</option><option value="mkv" ${c("mkv")}>MKV</option>
+      <option value="webm" ${c("webm")}>WEBM</option></select></div>
+    <div class="field sel au" ${o.kind!=="audio"?"hidden":""}><span>קודק</span><select class="a">
+      <option value="mp3" ${a("mp3")}>MP3</option><option value="m4a" ${a("m4a")}>M4A</option>
+      <option value="opus" ${a("opus")}>OPUS</option><option value="flac" ${a("flac")}>FLAC</option>
+      <option value="wav" ${a("wav")}>WAV</option><option value="best" ${a("best")}>מקורי</option></select></div>
+    <div class="field sel au" ${o.kind!=="audio"?"hidden":""}><span>קצב</span><select class="b">
+      <option value="320" ${b("320")}>320k</option><option value="256" ${b("256")}>256k</option>
+      <option value="192" ${b("192")}>192k</option><option value="128" ${b("128")}>128k</option></select></div>
+    <label class="switch"><input type="checkbox" class="pl" ${o.playlist?"checked":""}><i></i><b>פלייליסט</b></label>
+  </div>`;
+}
+function readRow(row, base){
+  return Object.assign({}, base, {
+    kind: row.querySelector(".k .on").dataset.k,
+    quality: row.querySelector(".q").value, container: row.querySelector(".c").value,
+    acodec: row.querySelector(".a").value, abr: row.querySelector(".b").value,
+    playlist: row.querySelector(".pl").checked
+  });
+}
+function wireRow(row){
+  row.querySelectorAll(".k button").forEach(btn => btn.onclick = () => {
+    row.querySelectorAll(".k button").forEach(x => x.classList.toggle("on", x===btn));
+    row.querySelectorAll(".v").forEach(e => e.hidden = btn.dataset.k !== "video");
+    row.querySelectorAll(".au").forEach(e => e.hidden = btn.dataset.k !== "audio");
+  });
+}
+let pendingMode = "add", editId = null;
+function openPerItem(urls){
+  pendingMode = "add"; editId = null;
+  $("#ptitle").textContent = "איכות נפרדת לכל הורדה";
+  $("#psub").textContent = urls.length + " קישורים — כוונן כל אחד בנפרד";
+  $("#applyall").style.display = urls.length > 1 ? "" : "none";
+  const base = gather();
+  $("#pbody").innerHTML = urls.map((u,i) =>
+    `<div class="prow" data-url="${esc(u)}"><div class="u"><span class="n">${i+1}</span>${esc(u)}</div>${optionsHTML(base)}</div>`).join("");
+  $$("#pbody .prow").forEach(wireRow);
+  $("#pmodal").classList.add("open");
+}
+function openEdit(item){
+  pendingMode = "edit"; editId = item.id;
+  $("#ptitle").textContent = "שינוי איכות";
+  $("#psub").textContent = item.title;
+  $("#applyall").style.display = "none";
+  $("#pbody").innerHTML = `<div class="prow" data-url=""><div class="u">${esc(item.url)}</div>${optionsHTML(item.opts)}</div>`;
+  $$("#pbody .prow").forEach(wireRow);
+  $("#pmodal").classList.add("open");
+}
+$("#applyall").onclick = () => {
+  const rows = $$("#pbody .prow");
+  if(rows.length < 2) return;
+  const first = readRow(rows[0], {});
+  rows.slice(1).forEach(r => {
+    r.querySelectorAll(".k button").forEach(b => b.classList.toggle("on", b.dataset.k===first.kind));
+    r.querySelectorAll(".v").forEach(e => e.hidden = first.kind !== "video");
+    r.querySelectorAll(".au").forEach(e => e.hidden = first.kind !== "audio");
+    r.querySelector(".q").value = first.quality; r.querySelector(".c").value = first.container;
+    r.querySelector(".a").value = first.acodec;  r.querySelector(".b").value = first.abr;
+    r.querySelector(".pl").checked = first.playlist;
+  });
+  toast("ההגדרות הועתקו לכל השורות");
+};
+$("#pconfirm").onclick = async () => {
+  const base = gather(), rows = $$("#pbody .prow");
+  if(pendingMode === "edit"){
+    await api("/api/update", {id: editId, opts: readRow(rows[0], base)});
+    toast("האיכות עודכנה", "ok");
+  } else {
+    await send(rows.map(r => ({url: r.dataset.url, opts: readRow(r, base)})));
+  }
+  $("#pmodal").classList.remove("open");
+  poll();
+};
+$$("[data-close]").forEach(b => b.onclick = e => e.target.closest(".scrim").classList.remove("open"));
+$$(".scrim").forEach(s => s.onclick = e => { if(e.target === s) s.classList.remove("open"); });
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape") $$(".scrim.open").forEach(s => s.classList.remove("open"));
+  if(e.key === "v" && (e.ctrlKey||e.metaKey) && document.activeElement !== box){ box.focus(); }
+  if(e.key === "Enter" && !e.shiftKey && !e.isComposing){
+    const open = $$(".scrim.open");
+    if(open.length){                       /* Enter מאשר את החלון הפתוח */
+      const t = e.target;
+      if(t && (t.tagName === "BUTTON" || t.tagName === "SELECT")) return;
+      if(open[0].id === "pmodal"){ e.preventDefault(); $("#pconfirm").click(); }
+      return;
+    }
+    const t = e.target;
+    const typing = t && (t === box || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+    const clicky = t && (t.tagName === "BUTTON" || t.tagName === "SELECT" || t.tagName === "A");
+    if(!typing && !clicky && urlsOf(box.value).length){ e.preventDefault(); addFromBox(); }
+  }
+});
+
+/* ---------------- settings modal ---------------- */
+$("#setbtn").onclick = () => $("#smodal").classList.add("open");
+$("#themebtn").onclick = () => {
+  const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = t;
+  pushSettings({theme: t}, true);
+};
+async function pickFolder(){
+  const r = await api("/api/folder", {});
+  if(r.folder){ applySettingsToUI(r.settings); toast("תיקיית היעד עודכנה", "ok"); }
+}
+$("#browse").onclick = pickFolder;
+$("#folderchip").onclick = pickFolder;
+$("#openfolder").onclick = () => api("/api/openfolder", {}).catch(()=>{});
+$("#s_folder").addEventListener("change", e => pushSettings({folder: e.target.value}, true));
+$("#s_conc").addEventListener("change", e => pushSettings({concurrency: Math.max(1, Math.min(8, +e.target.value||2))}, true));
+$("#s_rate").addEventListener("change", e => pushSettings({ratelimit: e.target.value}, true));
+$("#s_cookies").addEventListener("change", e => pushSettings({cookies: e.target.value}, true));
+$("#s_tmpl").addEventListener("change", e => pushSettings({template: e.target.value}, true));
+$("#s_ffmpeg").addEventListener("change", e => pushSettings({ffmpeg: e.target.value}, true));
+$("#ffchip").onclick = () => $("#smodal").classList.add("open");
+$("#clearall").onclick = async () => { await api("/api/clear", {which:"all"}); poll(); toast("התור נוקה"); };
+$("#clrdone").onclick = async () => { await api("/api/clear", {which:"done"}); poll(); };
+$("#cancelall").onclick = async () => { await api("/api/cancelall", {}); poll(); toast("כל ההורדות נעצרו"); };
+
+/* ---------------- queue render ---------------- */
+let filter = "all";
+$$("#tabs button").forEach(b => b.onclick = () => {
+  filter = b.dataset.f;
+  $$("#tabs button").forEach(x => x.classList.toggle("on", x===b));
+  render(LAST);
+});
+const BADGE = {
+  pending:["ממתין",""], downloading:["מוריד","dl"], processing:["מעבד","pp"],
+  done:["הושלם","ok"], error:["שגיאה","er"], canceled:["בוטל",""]
+};
+let LAST = {items:[]}, nodes = new Map(), prevStatus = new Map();
+
+function itemNode(){
+  const el = document.createElement("div");
+  el.className = "item";
+  el.innerHTML = `
+    <div class="thumb"><span class="ph">🎞</span><img hidden alt=""><span class="dur" hidden></span></div>
+    <div class="body">
+      <div class="r1"><div class="title"></div><span class="badge"></span></div>
+      <div class="meta"></div>
+      <div class="bar"><div class="fill"></div></div>
+      <div class="r2"><span class="stats"></span><div class="acts"></div></div>
+    </div>`;
+  return el;
+}
+function actionsFor(it){
+  if(it.status === "pending") return [["✎","שנה איכות","edit"],["✕","הסר","rm"]];
+  if(it.status === "downloading" || it.status === "processing") return [["■","עצור","cancel"]];
+  if(it.status === "done"){
+    const a = [];
+    if(it.filepath){ a.push(["▶","פתח קובץ","open"]); a.push(["📂","הצג בתיקייה","reveal"]); }
+    return a.concat([["↻","הורד שוב","retry"],["✕","הסר","rm"]]);
+  }
+  return [["↻","נסה שוב","retry"],["✎","שנה איכות","edit"],["✕","הסר","rm"]];
+}
+function paint(el, it){
+  el.dataset.s = it.status;
+  const img = el.querySelector("img"), ph = el.querySelector(".ph"), dur = el.querySelector(".dur");
+  if(it.thumbnail && img.dataset.src !== it.thumbnail){
+    img.dataset.src = it.thumbnail; img.src = it.thumbnail; img.hidden = false; ph.hidden = true;
+    img.onerror = () => { img.hidden = true; ph.hidden = false; };
+  }
+  if(it.duration){ dur.hidden = false; dur.textContent = fmtTime(it.duration); }
+  const t = el.querySelector(".title");
+  if(t.textContent !== it.title){ t.textContent = it.title; t.title = it.url; }
+  const [txt, cls] = BADGE[it.status] || ["", ""];
+  const badge = el.querySelector(".badge");
+  const btxt = it.status === "processing" && it.stage ? it.stage : txt;
+  if(badge.textContent !== btxt || badge.className !== "badge "+cls){
+    badge.className = "badge " + cls; badge.textContent = btxt;
+  }
+  const meta = [`<span class="tag">${esc(it.label)}</span>`];
+  if(it.uploader) meta.push(`<span>${esc(it.uploader)}</span>`);
+  if(it.pc > 1) meta.push(`<span class="tag">פלייליסט ${it.pi||0}/${it.pc}</span>`);
+  if(it.status === "error" && it.error) meta.push(`<span class="err" title="${esc(it.error)}">${esc(it.error)}</span>`);
+  const m = el.querySelector(".meta"), html = meta.join("");
+  if(m.dataset.h !== html){ m.dataset.h = html; m.innerHTML = html; }
+
+  el.querySelector(".fill").style.width =
+    (it.status==="done" ? 100 : it.status==="pending" ? 0 : it.percent) + "%";
+
+  let stats = "";
+  if(it.status === "downloading"){
+    const p = [it.percent.toFixed(1) + "%"];
+    if(it.total) p.push(fmtSize(it.downloaded) + " / " + fmtSize(it.total));
+    if(it.speed) p.push(fmtSpeed(it.speed));
+    if(it.eta) p.push("נותרו " + fmtTime(it.eta));
+    stats = p.map(iso).join(" · ");
+  } else if(it.status === "processing"){ stats = (it.stage || "מעבד") + "…";
+  } else if(it.status === "done"){
+    const p = [];
+    if(it.total) p.push(fmtSize(it.total));
+    p.push(it.filepath ? it.filepath.split(/[\\/]/).pop() : "הושלם");
+    stats = "✓ " + p.map(iso).join(" · ");
+  } else if(it.status === "pending"){ stats = "ממתין בתור";
+  } else if(it.status === "error"){ stats = "ההורדה נכשלה";
+  } else if(it.status === "canceled"){ stats = "ההורדה בוטלה"; }
+  const st = el.querySelector(".stats");
+  if(st.textContent !== stats){ st.textContent = stats; st.title = stats; }
+
+  const acts = actionsFor(it), key = acts.map(a=>a[2]).join(",");
+  const abox = el.querySelector(".acts");
+  if(abox.dataset.k !== key){
+    abox.dataset.k = key;
+    abox.innerHTML = acts.map(([ic,tt,ac]) =>
+      `<button class="mini ${ac==="rm"?"x":ac==="open"?"go":""}" title="${tt}" data-a="${ac}">${ic}</button>`).join("");
+    abox.querySelectorAll("button").forEach(b => b.onclick = () => act(b.dataset.a, it.id));
+  }
+}
+async function act(a, id){
+  if(a === "edit"){ const it = LAST.items.find(x=>x.id===id); if(it) openEdit(it); return; }
+  const map = {cancel:"/api/cancel", retry:"/api/retry", rm:"/api/remove", open:"/api/open", reveal:"/api/reveal"};
+  try { await api(map[a], {id}); } catch(e){ toast("הפעולה נכשלה", "er"); }
+  poll();
+}
+/* שני פסי התקדמות: ההורדה הנוכחית והתור כולו */
+function updateDock(items, c, speed){
+  const dock = $("#dock");
+  const live = items.filter(i => i.status === "downloading" || i.status === "processing");
+  const cur = live.find(i => i.status === "downloading") || live[0] || null;
+  const tracked = items.filter(i => i.status !== "canceled");
+  const qn = tracked.length;
+  const qpct = qn ? tracked.reduce((a, i) =>
+    a + (i.status === "done" || i.status === "error" ? 100 : i.status === "pending" ? 0 : i.percent), 0) / qn : 0;
+
+  if(!qn){ dock.hidden = true; return 0; }
+  dock.hidden = false;
+
+  /* --- הורדה נוכחית --- */
+  const nm = $("#curname"), pc = $("#curpc"), fill = $("#curfill"), sub = $("#cursub");
+  if(cur){
+    const t = cur.title;
+    if(nm.textContent !== t){ nm.textContent = t; nm.title = cur.url; }
+    const p = cur.status === "processing" ? 100 : cur.percent;
+    pc.textContent = p.toFixed(p >= 100 ? 0 : 1) + "%";
+    fill.style.width = p + "%";
+    fill.className = "fill live";
+    const s = [];
+    if(cur.status === "processing") s.push(`<b>${esc(cur.stage || "מעבד")}…</b>`);
+    else {
+      if(cur.total) s.push(`<b>${fmtSize(cur.downloaded)}</b> מתוך ${fmtSize(cur.total)}`);
+      if(cur.speed) s.push(fmtSpeed(cur.speed));
+      if(cur.eta) s.push("נותרו " + fmtTime(cur.eta));
+    }
+    s.push(`<span class="pill">${esc(cur.label)}</span>`);
+    if(live.length > 1) s.push(`<span class="pill">+${live.length - 1} במקביל</span>`);
+    const h = s.map(x => "<span>" + x + "</span>").join('<i class="d">·</i>');
+    if(sub.dataset.h !== h){ sub.dataset.h = h; sub.innerHTML = h; }
+  } else {
+    if(nm.textContent !== "אין הורדה פעילה"){ nm.textContent = "אין הורדה פעילה"; nm.title = ""; }
+    pc.textContent = "—";
+    fill.style.width = "0%";
+    fill.className = "fill";
+    const h = c.pending ? `<b>${c.pending}</b> ממתינים להתחיל` : "התור סיים לעבוד";
+    if(sub.dataset.h !== h){ sub.dataset.h = h; sub.innerHTML = h; }
+  }
+
+  /* --- התור כולו --- */
+  $("#allname").textContent = `${c.done} מתוך ${qn} הושלמו`;
+  $("#allpc").textContent = Math.round(qpct) + "%";
+  const af = $("#allfill");
+  af.style.width = qpct + "%";
+  af.className = "fill q" + (c.active ? " live" : "");
+  const a = [];
+  if(live.length) a.push(`<b>${live.length}</b> פעילות`);
+  if(c.pending) a.push(`<b>${c.pending}</b> בתור`);
+  if(c.error) a.push(`<b>${c.error}</b> נכשלו/בוטלו`);
+  if(speed) a.push("מהירות כוללת " + fmtSpeed(speed));
+  if(!a.length) a.push("אין משימות פעילות");
+  const ah = a.map(x => "<span>" + x + "</span>").join('<i class="d">·</i>');
+  const asub = $("#allsub");
+  if(asub.dataset.h !== ah){ asub.dataset.h = ah; asub.innerHTML = ah; }
+  return qpct;
+}
+
+function render(state){
+  LAST = state;
+  const items = state.items || [];
+  const c = {all: items.length, active: 0, done: 0, error: 0, pending: 0, live: 0};
+  let speed = 0, sum = 0, n = 0;
+  for(const it of items){
+    if(["pending","downloading","processing"].includes(it.status)){ c.active++; sum += it.percent; n++; }
+    if(it.status === "downloading" || it.status === "processing") c.live++;
+    if(it.status === "pending") c.pending++;
+    if(it.status === "done") c.done++;
+    if(it.status === "error" || it.status === "canceled") c.error++;
+    speed += it.speed || 0;
+    const prev = prevStatus.get(it.id);
+    if(prev && prev !== "done" && it.status === "done"){
+      toast("הורדה הושלמה · " + it.title, "ok", it.filepath ? {label:"פתח", fn:()=>act("open", it.id)} : null);
+    }
+    prevStatus.set(it.id, it.status);
+  }
+  for(const id of [...prevStatus.keys()]) if(!items.some(i=>i.id===id)) prevStatus.delete(id);
+
+  $$("#tabs button").forEach(b => {
+    const v = c[b.dataset.f], bb = b.querySelector("b");
+    if(v){ if(bb){ if(bb.textContent != v) bb.textContent = v; } else b.insertAdjacentHTML("beforeend", `<b>${v}</b>`); }
+    else if(bb) bb.remove();
+  });
+  $("#speedchip").style.display = speed ? "" : "none";
+  $("#speedtxt").textContent = fmtSpeed(speed);
+
+  const q = updateDock(items, c, speed);
+  const tf = $("#topfill");
+  if(c.live){ tf.style.opacity = 1; tf.style.width = q + "%"; }
+  else { tf.style.opacity = 0; tf.style.width = "0%"; }
+
+  const parts = [];
+  if(c.live) parts.push(`<span>פעילות <b>${c.live}</b></span>`);
+  if(c.pending) parts.push(`<span>בתור <b>${c.pending}</b></span>`);
+  if(c.done) parts.push(`<span>הושלמו <b>${c.done}</b></span>`);
+  if(c.error) parts.push(`<span>שגיאות <b>${c.error}</b></span>`);
+  if(!parts.length) parts.push(`<span>מוכן לעבודה</span>`);
+  const fs = $("#fstats"), fh = parts.join("");
+  if(fs.dataset.h !== fh){ fs.dataset.h = fh; fs.innerHTML = fh; }
+
+  const show = items.filter(it =>
+    filter==="all" ? true :
+    filter==="active" ? ["pending","downloading","processing"].includes(it.status) :
+    filter==="done" ? it.status==="done" : it.status==="error" || it.status==="canceled");
+
+  const list = $("#list");
+  if(!show.length){
+    nodes.clear();
+    list.innerHTML = `<div class="empty"><div class="big">${items.length?"🔎":"⬇"}</div>
+      <h3>${items.length ? "אין פריטים בתצוגה הזו" : "התור ריק"}</h3>
+      <p>${items.length ? "בחר לשונית אחרת כדי לראות את שאר הפריטים." :
+        'הדבק קישור למעלה ולחץ <kbd>Enter</kbd><br>אפשר לגרור קישור לחלון, ולהוסיף עוד קישורים גם בזמן שהורדות רצות.'}</p></div>`;
+    return;
+  }
+  if(list.firstElementChild && list.firstElementChild.classList.contains("empty")) list.innerHTML = "";
+  const seen = new Set();
+  show.forEach((it, i) => {
+    seen.add(it.id);
+    let el = nodes.get(it.id);
+    if(!el){ el = itemNode(); nodes.set(it.id, el); }
+    if(list.children[i] !== el) list.insertBefore(el, list.children[i] || null);
+    paint(el, it);
+  });
+  for(const [id, el] of [...nodes]) if(!seen.has(id)){ el.remove(); nodes.delete(id); }
+}
+
+/* ---------------- polling ---------------- */
+let busy = false;
+async function poll(){
+  if(busy) return; busy = true;
+  try{
+    const st = await api("/api/state");
+    if(firstPaint){
+      firstPaint = false;
+      applySettingsToUI(st.settings);
+    }
+    $("#ver").textContent = "גרסה " + st.app + " · yt-dlp " + st.version;
+    paintUpdate(st.update || {});
+    $("#ffchip").classList.toggle("bad", !st.ffmpeg && !st.ffmpegBusy);
+    $("#fftxt").textContent = st.ffmpeg ? "FFmpeg פעיל" : (st.ffmpegBusy ? "מכין FFmpeg…" : "FFmpeg חסר");
+    $("#ffchip").title = st.ffmpeg ? st.ffmpegPath : "ללא FFmpeg לא ניתן למזג איכויות גבוהות או להמיר אודיו";
+    $("#ffhint").textContent = st.ffmpeg ? "נמצא: " + st.ffmpegPath
+      : (st.ffmpegBusy ? "פורס את FFmpeg המצורף לתוכנה — רק בהפעלה הראשונה…"
+                       : "FFmpeg לא נמצא — האיכויות מוגבלות והמרת אודיו מושבתת.");
+    render(st);
+  }catch(e){}
+  busy = false;
+}
+setInterval(poll, 700);
+poll();
+
+/* ---------------- updates ---------------- */
+function paintUpdate(u){
+  const chip = $("#updchip"), txt = $("#updtxt");
+  if(u.busy){
+    chip.hidden = false;
+    txt.textContent = "מעדכן… " + Math.round(u.percent || 0) + "%";
+  } else if(u.available){
+    chip.hidden = false;
+    txt.textContent = "גרסה " + u.latest + " זמינה";
+  } else {
+    chip.hidden = true;
+  }
+  const v = $("#s_ver");
+  if(v) v.value = u.current || "";
+  const h = $("#updhint");
+  if(h){
+    h.textContent = u.busy ? "מוריד את הגרסה החדשה… " + Math.round(u.percent || 0) + "%"
+      : u.available ? "גרסה " + u.latest + " זמינה להורדה."
+      : u.error ? "בדיקת עדכון נכשלה: " + u.error
+      : u.checked ? "זו הגרסה העדכנית ביותר." : "בודק עדכונים…";
+  }
+}
+async function startUpdate(){
+  const r = await api("/api/update/run", {});
+  if(!r.ok) toast(r.error || "העדכון נכשל", "er");
+  else toast("מוריד את הגרסה החדשה — התוכנה תיסגר ותיפתח מחדש לבד", "ok");
+  poll();
+}
+$("#updchip").onclick = () => {
+  const u = (LAST && LAST.update) || {};
+  if(u.busy) return;
+  const first = (u.notes || "").split(String.fromCharCode(10))[0].trim();
+  toast("גרסה " + u.latest + " זמינה" + (first ? " · " + first : ""), "",
+        {label: "עדכן והפעל מחדש", fn: startUpdate});
+};
+$("#checkupd").onclick = async () => {
+  $("#updhint").textContent = "בודק עדכונים…";
+  await api("/api/update/check", {});
+  setTimeout(poll, 1500);
+};
+
+/* ---------------- clipboard watcher ---------------- */
+let lastClip = "", clipUrl = "";
+async function checkClip(){
+  if(document.hidden) return;
+  try{
+    let txt = "";
+    try { txt = await navigator.clipboard.readText(); } catch(e){ txt = (await api("/api/clipboard")).text || ""; }
+    if(!txt || txt === lastClip) return;
+    lastClip = txt;
+    const u = urlsOf(txt)[0];
+    if(!u || !/youtu|youtube/i.test(u)) return;
+    if(urlsOf(box.value).includes(u)) return;
+    if((LAST.items||[]).some(it => it.url === u)) return;
+    clipUrl = u;
+    $("#cliptxt").textContent = u;
+    $("#clipbar").classList.add("on");
+  }catch(e){}
+}
+$("#clipadd").onclick = () => { appendUrls([clipUrl]); $("#clipbar").classList.remove("on"); box.focus(); };
+$("#clipno").onclick = () => $("#clipbar").classList.remove("on");
+window.addEventListener("focus", checkClip);
+setInterval(checkClip, 2500);
+
+$("#credit").onclick = e => {
+  e.preventDefault();
+  api("/api/openurl", {url:"https://tsoolgee.uk"}).catch(() => window.open("https://tsoolgee.uk","_blank"));
+};
+refreshCount();
+box.focus();
+</script>
+</body>
+</html>
