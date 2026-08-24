@@ -35,9 +35,15 @@ jobs:
       - name: Build single EXE
         run: python build.py
 
+      - name: Normalise asset name
+        shell: pwsh
+        run: Move-Item "dist/YT-DLP Studio.exe" "dist/YT-DLP-Studio.exe" -Force
+
+      # שם הנכס חייב להישאר קבוע - עליו נשען הקישור
+      # releases/latest/download/YT-DLP-Studio.exe וגם המעדכן שבתוך התוכנה
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: "dist/YT-DLP Studio.exe"
+          files: "dist/YT-DLP-Studio.exe"
           generate_release_notes: true
