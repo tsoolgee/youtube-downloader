@@ -608,6 +608,10 @@ body:has(.scrim.open) #clipbar{display:none !important}
         <div class="field"><input type="text" id="s_ffmpeg" dir="ltr" placeholder="ריק = איתור אוטומטי"></div>
       </div>
       <p class="hint" id="ffhint"></p>
+      <div class="srow"><label>שם הקובץ בעדכון</label>
+        <label class="switch" style="flex:1"><input type="checkbox" id="s_keepname"><i></i><b>שמור על שם הקובץ הקיים</b></label>
+      </div>
+      <p class="hint">כברירת מחדל התוכנה מתקינה את עצמה בשם "הורדה ניידת מיוטיוב צול גאה.exe" ומוחקת את הקובץ הישן. סמן כדי לשמור על השם הנוכחי.</p>
       <div class="srow"><label>תעודות אבטחה</label>
         <label class="switch" style="flex:1"><input type="checkbox" id="s_ssl"><i></i><b>התעלם משגיאות תעודה</b></label>
       </div>
@@ -756,7 +760,7 @@ const CTRL = {
   quality:"#quality", container:"#container", acodec:"#acodec", abr:"#abr",
   playlist:"#playlist", subs:"#subs", thumb:"#thumb", metadata:"#metadata",
   sponsorblock:"#sponsorblock", sublangs:"#sublangs", perItem:"#peritem",
-  insecureSSL:"#s_ssl"
+  insecureSSL:"#s_ssl", keepExeName:"#s_keepname"
 };
 function syncKind(k){
   $$("#kindseg button").forEach(b => b.classList.toggle("on", b.dataset.k === k));

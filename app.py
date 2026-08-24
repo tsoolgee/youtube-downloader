@@ -40,8 +40,9 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.6"
+APP_VERSION = "0.0.7"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
+APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
 NOTICE_API = "https://api.github.com/repos/%s/contents/notice.txt" % UPDATE_REPO
 NOTICE_RAW = "https://raw.githubusercontent.com/%s/main/notice.txt" % UPDATE_REPO
@@ -133,6 +134,7 @@ DEFAULT_SETTINGS = {
     "theme": "dark",
     "ffmpeg": "",
     "insecureSSL": True,       # סינוני אינטרנט מחליפים תעודות - בלי זה החיבור נכשל
+    "keepExeName": False,      # בעדכון: לשמור על שם הקובץ הקיים במקום השם הרשמי
     "noticeSeen": "",          # מזהה ההתרעה האחרונה שנסגרה
 }
 
@@ -512,7 +514,11 @@ class Updater:
                 raise RuntimeError("הקובץ שהתקבל פגום")
             with self.lock:
                 self.state["percent"] = 100.0
-            self._swap(tmp, os.path.abspath(sys.executable))
+            old = os.path.abspath(sys.executable)
+            target = (old if SETTINGS.get("keepExeName", False)
+                      else os.path.join(os.path.dirname(old), APP_FILENAME))
+            log("עדכון: מתקין %s -> %s" % (os.path.basename(old), os.path.basename(target)))
+            self._swap(tmp, target, old)
         except Exception as e:
             try:
                 os.remove(tmp)
@@ -522,21 +528,34 @@ class Updater:
                 self.state.update({"busy": False, "error": str(e)[:180]})
 
     @staticmethod
-    def _swap(new, target):
-        """סקריפט חיצוני קצר מחליף את הקובץ אחרי שהתוכנה נסגרת, ומפעיל מחדש."""
+    def _swap(new, target, old=None):
+        """סקריפט חיצוני מחליף את הקובץ אחרי שהתוכנה נסגרת, ומפעיל מחדש מהשם החדש.
+        אם השם השתנה - הקובץ הישן נמחק, אחרת יישארו שתי תוכנות באותה תיקייה."""
+        old = old or target
         ps = os.path.join(tempfile.gettempdir(), "yts_update_%s.ps1" % uuid.uuid4().hex[:8])
-        q = lambda p: p.replace("'", "''")
-        script = (
-            "$ErrorActionPreference='SilentlyContinue'\r\n"
-            "Wait-Process -Id %d -Timeout 90\r\n"
-            "Start-Sleep -Milliseconds 600\r\n"
-            "Copy-Item -LiteralPath '%s' -Destination '%s' -Force\r\n"
-            "Remove-Item -LiteralPath '%s' -Force\r\n"
-            "Start-Process -FilePath '%s'\r\n"
-            "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force\r\n"
-        ) % (os.getpid(), q(new), q(target), q(new), q(target))
+        q = lambda p: str(p).replace("'", "''")
+        lines = [
+            "$ErrorActionPreference='Stop'",
+            "$stamp = { Get-Date -Format 'yyyy-MM-dd HH:mm:ss' }",
+            "try {",
+            "  Wait-Process -Id %d -Timeout 90 -ErrorAction SilentlyContinue" % os.getpid(),
+            "  Start-Sleep -Milliseconds 700",
+            "  Copy-Item -LiteralPath '%s' -Destination '%s' -Force" % (q(new), q(target)),
+            "  if ('%s' -ne '%s') { Remove-Item -LiteralPath '%s' -Force -ErrorAction SilentlyContinue }"
+            % (q(old), q(target), q(old)),
+            "  Remove-Item -LiteralPath '%s' -Force -ErrorAction SilentlyContinue" % q(new),
+            "  Add-Content -LiteralPath '%s' -Encoding utf8 -Value \"$(&$stamp)  עדכון: הותקן בשם %s\""
+            % (q(LOG_PATH), q(os.path.basename(target))),
+            "  Start-Process -FilePath '%s' -WorkingDirectory '%s'"
+            % (q(target), q(os.path.dirname(target))),
+            "} catch {",
+            "  Add-Content -LiteralPath '%s' -Encoding utf8 -Value \"$(&$stamp)  עדכון נכשל: $($_.Exception.Message)\""
+            % q(LOG_PATH),
+            "}",
+            "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue",
+        ]
         with open(ps, "w", encoding="utf-8-sig") as f:
-            f.write(script)
+            f.write("\r\n".join(lines) + "\r\n")
         subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                           "-WindowStyle", "Hidden", "-File", ps],
                          creationflags=0x08000000 if IS_WIN else 0)

@@ -53,6 +53,7 @@ jobs:
           $tag = $ref.TrimStart('v')
           $ver = (Select-String -Path app.py -Pattern 'APP_VERSION = "([^"]+)"').Matches[0].Groups[1].Value
           if ($tag -ne $ver) { throw "tag $tag != APP_VERSION $ver - bump APP_VERSION in app.py first" }
+          "VER=$ver" >> $env:GITHUB_ENV
           "version ok: $ver"
 
       - name: Fetch FFmpeg
@@ -91,6 +92,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
+          name: הורדה ניידת מיוטיוב צול גאה ${{ env.VER }}
           files: "dist/YT-DLP-Studio.exe"
           generate_release_notes: true
 
@@ -102,8 +104,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # בלי jq: ההסלמה של המרכאות בין YAML ל-pwsh שוברת את הביטוי
           $tag = if ("${{ inputs.tag }}") { "${{ inputs.tag }}" } else { "${{ github.ref_name }}" }
-          $id = gh api "repos/${{ github.repository }}/releases/tags/$tag" `
-                  --jq '.assets[] | select(.name==\"YT-DLP-Studio.exe\") | .id'
+          $rel = gh api "repos/${{ github.repository }}/releases/tags/$tag" | ConvertFrom-Json
+          $id = ($rel.assets | Where-Object { $_.name -eq 'YT-DLP-Studio.exe' }).id
+          if (-not $id) { throw "asset YT-DLP-Studio.exe not found on $tag" }
           gh api -X PATCH "repos/${{ github.repository }}/releases/assets/$id" -f label="יוטיוב הורדה" | Out-Null
           "labelled asset $id"
