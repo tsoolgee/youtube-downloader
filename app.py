@@ -39,7 +39,7 @@ except ImportError:
     print("שגיאה: הספרייה yt-dlp אינה מותקנת.\n  pip install -U yt-dlp")
     sys.exit(1)
 
-APP_NAME = "YT-DLP Studio"
+APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
 APP_VERSION = "0.0.2"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -52,6 +52,7 @@ FROZEN = getattr(sys, "frozen", False)
 APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or HOME, "YT-DLP Studio")
 BIN_DIR = os.path.join(APP_DIR, "bin")
 CFG_PATH = os.path.join(APP_DIR, "settings.json")
+LOG_PATH = os.path.join(APP_DIR, "log.txt")
 LEGACY_CFG = os.path.join(HOME, ".ytdlp_studio.json")
 
 
@@ -75,6 +76,29 @@ def _writable(d):
         return True
     except Exception:
         return False
+
+
+_log_lock = threading.Lock()
+
+
+def log(msg):
+    """שורה ללוג. נשמר ב-%LOCALAPPDATA%\\YT-DLP Studio\\log.txt וניתן לפתיחה מההגדרות."""
+    line = "%s  %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
+    try:
+        with _log_lock:
+            os.makedirs(APP_DIR, exist_ok=True)
+            if os.path.isfile(LOG_PATH) and os.path.getsize(LOG_PATH) > 512 * 1024:
+                with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
+                    tail = f.readlines()[-500:]
+                with open(LOG_PATH, "w", encoding="utf-8") as f:
+                    f.writelines(tail)
+            new_file = not os.path.isfile(LOG_PATH) or os.path.getsize(LOG_PATH) == 0
+            with open(LOG_PATH, "a", encoding="utf-8-sig" if new_file else "utf-8") as f:
+                f.write(line + "\n")
+    except Exception:
+        pass
+    if not FROZEN:
+        print(line, flush=True)
 
 
 def default_download_dir():
@@ -272,23 +296,38 @@ def locate_ffmpeg(custom=""):
     return os.path.dirname(w) if w else ""
 
 
-def unpack_ffmpeg():
+def unpack_ffmpeg(on_progress=None):
     """פורס את FFmpeg הארוז (vendor/*.xz) לתיקיית המשתמש - פעם אחת בהתקנה."""
     src = res_path("vendor")
     if not os.path.isdir(src):
         return ""
     try:
         os.makedirs(BIN_DIR, exist_ok=True)
-        for name in os.listdir(src):
+        todo = []
+        for name in sorted(os.listdir(src)):
             if not name.endswith(".xz"):
                 continue
             out = os.path.join(BIN_DIR, name[:-3])
             if os.path.isfile(out) and os.path.getsize(out) > 0:
                 continue
+            todo.append((os.path.join(src, name), out))
+        # הערכת גודל: LZMA על בינארי כזה מכווץ בערך פי ארבעה
+        total = sum(os.path.getsize(p) for p, _ in todo) * 4 or 1
+        done = 0
+        for srcfile, out in todo:
             tmp = out + ".partial"
-            with lzma.open(os.path.join(src, name), "rb") as fin, open(tmp, "wb") as fout:
-                shutil.copyfileobj(fin, fout, 1024 * 1024)
+            with lzma.open(srcfile, "rb") as fin, open(tmp, "wb") as fout:
+                while True:
+                    chunk = fin.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    fout.write(chunk)
+                    done += len(chunk)
+                    if on_progress:
+                        on_progress(min(99.0, done * 100.0 / total))
             os.replace(tmp, out)
+        if on_progress:
+            on_progress(100.0)
         return BIN_DIR if os.path.isfile(os.path.join(BIN_DIR, _exe("ffmpeg"))) else ""
     except Exception:
         return ""
@@ -539,6 +578,7 @@ class Manager:
         self.active = 0
         self.ffmpeg = locate_ffmpeg(settings.get("ffmpeg", ""))
         self.ff_busy = False
+        self.ff_percent = 0.0
         self.probe_sem = threading.Semaphore(4)
         if not self.ffmpeg:
             self.ff_busy = True
@@ -546,10 +586,17 @@ class Manager:
         threading.Thread(target=self._dispatch, daemon=True).start()
 
     def _prepare_ffmpeg(self):
+        def progress(p):
+            self.ff_percent = p
+        t0 = time.time()
+        log("ffmpeg: לא נמצא, פורס את המצורף")
         try:
-            self.ffmpeg = unpack_ffmpeg() or locate_ffmpeg()
+            self.ffmpeg = unpack_ffmpeg(progress) or locate_ffmpeg()
+        except Exception as e:
+            log("ffmpeg: פריסה נכשלה: %s" % e)
         finally:
             self.ff_busy = False
+            log("ffmpeg: מוכן=%r אחרי %.1f שניות" % (self.ffmpeg or "אין", time.time() - t0))
 
     # ---------- public
     def add(self, entries):
@@ -562,6 +609,7 @@ class Manager:
                 it = Item(url, self.norm_opts(e.get("opts") or {}))
                 self.items.append(it)
                 added.append(it)
+                log("תור: נוסף %s (%s)" % (url, it.label()))
         for it in added:
             threading.Thread(target=self._probe, args=(it,), daemon=True).start()
         return len(added)
@@ -665,6 +713,7 @@ class Manager:
             "ffmpeg": bool(self.ffmpeg),
             "ffmpegPath": self.ffmpeg,
             "ffmpegBusy": self.ff_busy,
+            "ffmpegPercent": round(self.ff_percent, 1),
             "active": self.active,
             "version": yt_dlp.version.__version__,
             "app": APP_VERSION,
@@ -681,6 +730,10 @@ class Manager:
             except Exception:
                 cap = 2
             if self.ff_busy:
+                with self.lock:
+                    for it in self.items:
+                        if it.status == "pending":
+                            it.stage = "ממתין לסיום הכנת FFmpeg"
                 continue
             with self.lock:
                 if self.active >= cap:
@@ -695,6 +748,7 @@ class Manager:
                 nxt.status = "downloading"
                 nxt.stage = "מתחיל..."
                 self.active += 1
+                log("הורדה: מתחיל %s" % nxt.url)
             threading.Thread(target=self._run, args=(nxt,), daemon=True).start()
 
     def _probe(self, it):
@@ -915,6 +969,7 @@ class Manager:
             it.finished = time.time()
             if it.filepath and os.path.isfile(it.filepath):
                 it.total = os.path.getsize(it.filepath)
+            log("הורדה: הושלם %s -> %s" % (it.url, it.filepath or "?"))
         except Canceled:
             it.status = "canceled"
             it.stage = "בוטל"
@@ -930,6 +985,7 @@ class Manager:
                 it.status = "error"
                 it.error_raw = msg[:400]
                 it.error = friendly_error(msg)[:400] or "שגיאה לא ידועה"
+                log("הורדה: כשל %s :: %s" % (it.url, msg[:300]))
                 it.stage = "שגיאה"
             it.speed = 0
         finally:
@@ -955,6 +1011,8 @@ class Api:
         try:
             return self._route(path, body or {})
         except Exception as e:
+            import traceback
+            log("rpc %s נכשל: %s" % (path, traceback.format_exc()[-600:]))
             return {"__error": str(e)}
 
     def _route(self, path, d):
@@ -1049,6 +1107,15 @@ class Api:
                 return {"ok": open_path(it.opts.get("folder") or SETTINGS["folder"])}
             return {"ok": open_path(it.filepath) if path == "/api/open" else reveal_file(it.filepath)}
 
+        if path == "/api/log":
+            log("ממשק: %s" % str(d.get("text") or "")[:400])
+            return {"ok": True}
+
+        if path == "/api/log/open":
+            if not os.path.isfile(LOG_PATH):
+                log("נפתח קובץ לוג ריק")
+            return {"ok": open_path(LOG_PATH)}
+
         if path == "/api/notice/check":
             NOTE.check_async()
             return {"ok": True}
@@ -1095,6 +1162,11 @@ def main():
         print("לא נמצא ui.html:", e)
         return
 
+    log("=" * 60)
+    log("הפעלה: גרסה %s | frozen=%s | yt-dlp %s" % (APP_VERSION, FROZEN, yt_dlp.version.__version__))
+    log("נתיבים: exe=%s | הורדות=%s | ffmpeg=%r" % (
+        (sys.executable if FROZEN else __file__), SETTINGS.get("folder"), MGR.ffmpeg or "בהכנה"))
+
     api = Api()
     win = webview.create_window(
         APP_NAME, html=html, js_api=api,
@@ -1110,8 +1182,21 @@ def main():
     threading.Timer(20.0, close_splash).start()    # רשת ביטחון אם האירוע לא נורה
     UPD.check_async(delay=4.0)
     NOTE.check_async(delay=2.0)
-    webview.start(debug=os.environ.get("YTS_DEBUG") == "1")
+    try:
+        webview.start(debug=os.environ.get("YTS_DEBUG") == "1")
+        log("סגירה: החלון נסגר כרגיל")
+    except Exception:
+        import traceback
+        log("קריסה בחלון הראשי:\n" + traceback.format_exc())
+        raise
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        log("קריסה בהפעלה:\n" + traceback.format_exc())
+        raise

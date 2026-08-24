@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>YT-DLP Studio</title>
+<title>הורדה ניידת מיוטיוב צול גאה</title>
 <style>
 /* ============================ tokens ============================ */
 :root{
@@ -74,7 +74,7 @@ header{display:flex;align-items:center;gap:9px;padding:2px 2px 15px}
 .logo::after{content:"";position:absolute;inset:0;border-radius:13px;
   background:linear-gradient(180deg,rgba(255,255,255,.28),transparent 55%)}
 .logo svg{width:21px;height:21px;fill:#fff;position:relative;z-index:1}
-.brand h1{font-size:17.5px;margin:0;letter-spacing:.1px;font-weight:680;
+.brand h1{font-size:16px;margin:0;letter-spacing:.1px;font-weight:680;
   background:linear-gradient(100deg,var(--txt),color-mix(in srgb,var(--txt) 55%,var(--accent2)));
   -webkit-background-clip:text;background-clip:text;color:transparent}
 .brand small{display:block;color:var(--faint);font-size:11px;font-weight:500;letter-spacing:.25px;margin-top:1px}
@@ -203,6 +203,10 @@ input[type=text],input[type=number]{cursor:text;font-weight:500}
 .notice .iconbtn{width:29px;height:29px;font-size:12px}
 .notice.warn{border-color:color-mix(in srgb,var(--warn) 55%,var(--line))}
 .notice.warn::before{background:var(--warn)}
+.prepbar{width:150px;height:7px;border-radius:99px;background:var(--input);overflow:hidden;flex:none;
+  align-self:center;box-shadow:var(--glow)}
+.prepbar .fill{height:100%;width:0;border-radius:99px;transition:width .4s var(--ease);
+  background:linear-gradient(90deg,var(--accent),var(--accent2))}
 .notice.error{border-color:color-mix(in srgb,var(--err) 55%,var(--line))}
 .notice.error::before{background:var(--err)}
 
@@ -402,7 +406,7 @@ body:has(.scrim.open) #clipbar{display:none !important}
     <div class="brand">
       <div class="logo"><svg viewBox="0 0 24 24"><path d="M12 3a1 1 0 0 1 1 1v9.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.4L11 13.6V4a1 1 0 0 1 1-1zM5 19a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1z"/></svg></div>
       <div>
-        <h1>YT-DLP Studio</h1>
+        <h1>הורדה ניידת מיוטיוב צול גאה</h1>
         <small id="ver">מנוע yt-dlp</small>
       </div>
     </div>
@@ -414,6 +418,12 @@ body:has(.scrim.open) #clipbar{display:none !important}
     <button class="iconbtn" id="themebtn" title="החלף ערכת נושא">◐</button>
     <button class="iconbtn" id="setbtn" title="הגדרות">⚙</button>
   </header>
+
+  <div class="notice warn" id="prep" hidden>
+    <span class="ic">⏳</span>
+    <div class="ntext"><b>מכינים את התוכנה להפעלה הראשונה</b><span id="preptext"></span></div>
+    <div class="prepbar"><div class="fill" id="prepfill"></div></div>
+  </div>
 
   <div class="notice" id="notice" hidden>
     <span class="ic" id="noticeic">📢</span>
@@ -589,6 +599,10 @@ body:has(.scrim.open) #clipbar{display:none !important}
         <div class="field"><input type="text" id="s_ver" readonly dir="ltr" style="cursor:default"></div>
         <button class="btn sm" id="checkupd">בדוק עדכון</button>
       </div>
+      <div class="srow"><label>אבחון תקלות</label>
+        <div class="field" style="flex:1"><span>קובץ לוג של כל מה שהתוכנה עשתה</span></div>
+        <button class="btn sm" id="openlog">פתח לוג</button>
+      </div>
       <p class="hint" id="updhint"></p>
     </div>
     <div class="mfoot">
@@ -612,9 +626,16 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
 /* הגשר לפייתון - pywebview, בלי HTTP ובלי פורט מקומי */
-const bridge = new Promise(res => {
-  if(window.pywebview && window.pywebview.api) return res();
-  window.addEventListener("pywebviewready", () => res(), {once:true});
+const bridgeReady = () => !!(window.pywebview && window.pywebview.api &&
+                             typeof window.pywebview.api.rpc === "function");
+const bridge = new Promise((res, rej) => {
+  if(bridgeReady()) return res();
+  window.addEventListener("pywebviewready", () => { if(bridgeReady()) res(); }, {once:true});
+  let tries = 0;
+  const t = setInterval(() => {
+    if(bridgeReady()){ clearInterval(t); res(); }
+    else if(++tries > 200){ clearInterval(t); rej(new Error("הליבה של התוכנה לא נטענה")); }
+  }, 100);
 });
 async function api(path, body){
   await bridge;
@@ -635,6 +656,19 @@ function toast(msg, kind="", action){
   $("#toasts").appendChild(el);
   setTimeout(()=>{el.classList.add("out"); setTimeout(()=>el.remove(),280)}, action ? 6000 : 3200);
 }
+function logRemote(text){ try { api("/api/log", {text}); } catch(e){} }
+window.addEventListener("error", e => {
+  const m = (e && (e.message || (e.error && e.error.message))) || "שגיאה לא ידועה";
+  toast("תקלה בממשק: " + m, "er");
+  logRemote("error: " + m + " @ " + (e.filename || "") + ":" + (e.lineno || ""));
+});
+window.addEventListener("unhandledrejection", e => {
+  const r = e && e.reason;
+  const m = (r && (r.message || r)) || "שגיאה לא ידועה";
+  toast("תקלה: " + m, "er");
+  logRemote("rejection: " + m);
+});
+
 const URL_RE = /(?:https?:\/\/|www\.)[^\s,;"'<>\]\[)(]+/gi;
 function urlsOf(t){
   const out=[], seen=new Set();
@@ -771,10 +805,22 @@ async function addFromBox(){
   await send(urls.map(u => ({url:u, opts: gather()})));
 }
 async function send(items){
-  const r = await api("/api/add", {items});
-  box.value = ""; refreshCount();
-  toast(r.added===1 ? "נוסף לתור" : r.added + " פריטים נוספו לתור", "ok");
-  poll();
+  const btn = $("#addbtn");
+  btn.disabled = true;
+  try{
+    const r = await api("/api/add", {items});
+    const added = (r && r.added) || 0;
+    if(!added){ toast("שום קישור לא נוסף — נסה שוב", "er"); return; }
+    box.value = ""; refreshCount();
+    toast(added === 1 ? "נוסף לתור" : added + " פריטים נוספו לתור", "ok");
+    poll();
+  }catch(err){
+    const m = err && err.message ? err.message : String(err);
+    toast("ההוספה נכשלה: " + m, "er");
+    logRemote("add failed: " + m);
+  }finally{
+    btn.disabled = false;
+  }
 }
 $("#addbtn").onclick = addFromBox;
 
@@ -1155,7 +1201,7 @@ function render(state){
 }
 
 /* ---------------- polling ---------------- */
-let busy = false;
+let busy = false, pollFails = 0;
 async function poll(){
   if(busy) return; busy = true;
   try{
@@ -1165,6 +1211,7 @@ async function poll(){
       applySettingsToUI(st.settings);
     }
     $("#ver").textContent = "גרסה " + st.app + " · yt-dlp " + st.version;
+    paintPrep(st);
     paintUpdate(st.update || {});
     paintNotice(st.notice || {}, (st.settings || {}).noticeSeen || "");
     $("#ffchip").classList.toggle("bad", !st.ffmpeg && !st.ffmpegBusy);
@@ -1174,11 +1221,27 @@ async function poll(){
       : (st.ffmpegBusy ? "פורס את FFmpeg המצורף לתוכנה — רק בהפעלה הראשונה…"
                        : "FFmpeg לא נמצא — האיכויות מוגבלות והמרת אודיו מושבתת.");
     render(st);
-  }catch(e){}
+    pollFails = 0;
+  }catch(e){
+    if(++pollFails === 5)
+      toast("אין תקשורת עם הליבה של התוכנה: " + (e && e.message ? e.message : e), "er");
+  }
   busy = false;
 }
 setInterval(poll, 700);
 poll();
+
+/* ---------------- first-run preparation ---------------- */
+function paintPrep(st){
+  const el = $("#prep");
+  if(!st.ffmpegBusy){ el.hidden = true; return; }
+  el.hidden = false;
+  const p = st.ffmpegPercent || 0;
+  $("#prepfill").style.width = p + "%";
+  $("#preptext").textContent =
+    "פורסים את FFmpeg מתוך הקובץ — " + Math.round(p) + "%. אפשר להוסיף קישורים כבר עכשיו, " +
+    "ההורדות יתחילו ברגע שזה מסתיים.";
+}
 
 /* ---------------- notice from github ---------------- */
 let noticeId = "";
@@ -1237,6 +1300,7 @@ $("#updchip").onclick = () => {
   toast("גרסה " + u.latest + " זמינה" + (first ? " · " + first : ""), "",
         {label: "עדכן והפעל מחדש", fn: startUpdate});
 };
+$("#openlog").onclick = () => api("/api/log/open", {}).catch(()=>{});
 $("#checkupd").onclick = async () => {
   $("#updhint").textContent = "בודק עדכונים…";
   await api("/api/update/check", {});
