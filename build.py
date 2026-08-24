@@ -12,6 +12,7 @@
 
 import argparse
 import lzma
+import re
 import os
 import shutil
 import subprocess
@@ -112,11 +113,20 @@ def make_icon():
     return ico
 
 
+def app_version():
+    """קורא את APP_VERSION מ-app.py כדי להטביע אותו במסך הטעינה."""
+    try:
+        with open(os.path.join(ROOT, "app.py"), encoding="utf-8") as f:
+            m = re.search(r'APP_VERSION = "([^"]+)"', f.read())
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
 def make_splash():
-    """תמונת מסך הטעינה שמוצגת בזמן שה-EXE מחלץ את עצמו (לפני שפייתון עולה)."""
+    """תמונת מסך הטעינה שמוצגת בזמן שה-EXE מחלץ את עצמו (לפני שפייתון עולה).
+    נבנית מחדש בכל בנייה כדי שמספר הגרסה עליה יהיה מעודכן."""
     png = os.path.join(ROOT, "splash.png")
-    if os.path.isfile(png):
-        return png
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
@@ -161,6 +171,9 @@ def make_splash():
     d.text((right, 110), rtl("רגע אחד, מכינים את הקבצים"), font=font("segoeui.ttf", 12),
            fill=(105, 116, 146), anchor="ra")
 
+    ver = app_version()
+    if ver:                                  # לטינית ומספרים - בלי היפוך
+        d.text((34, 46), "v" + ver, font=font("segoeui.ttf", 13), fill=(118, 130, 162))
     d.rounded_rectangle([34, H - 46, W - 34, H - 40], radius=3, fill=(30, 36, 58))
     d.rounded_rectangle([34, H - 46, 34 + int((W - 68) * 0.42), H - 40], radius=3, fill=(124, 92, 246))
     img.save(png)
