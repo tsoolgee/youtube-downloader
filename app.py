@@ -9,6 +9,7 @@ YT-DLP Studio - תוכנת שולחן עבודה להורדה מיוטיוב.
 """
 
 import ctypes
+import hashlib
 import json
 import lzma
 import os
@@ -39,10 +40,11 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "YT-DLP Studio"
-APP_VERSION = "0.0.1"
+APP_VERSION = "0.0.2"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 UA = "YT-DLP-Studio/" + APP_VERSION
-NOTICE_URL = "https://raw.githubusercontent.com/%s/main/notice.txt" % UPDATE_REPO
+NOTICE_API = "https://api.github.com/repos/%s/contents/notice.txt" % UPDATE_REPO
+NOTICE_RAW = "https://raw.githubusercontent.com/%s/main/notice.txt" % UPDATE_REPO
 IS_WIN = os.name == "nt"
 HOME = os.path.expanduser("~")
 FROZEN = getattr(sys, "frozen", False)
@@ -220,11 +222,17 @@ class Notice:
     def _check(self, delay=0.0):
         if delay:
             time.sleep(delay)
-        try:
-            url = NOTICE_URL + "?t=" + str(int(time.time()))
-            with http_get(url, timeout=15, headers={"Cache-Control": "no-cache"}) as r:
-                raw = r.read().decode("utf-8", "replace").strip()
-        except Exception:
+        raw = None
+        # ה-API מחזיר את התוכן העדכני; raw נשמר בקאש של כמה דקות ומשמש כגיבוי
+        for url, hdrs in ((NOTICE_API, {"Accept": "application/vnd.github.raw"}),
+                          (NOTICE_RAW + "?t=" + str(int(time.time())), {"Cache-Control": "no-cache"})):
+            try:
+                with http_get(url, timeout=15, headers=hdrs) as r:
+                    raw = r.read().decode("utf-8", "replace").strip()
+                break
+            except Exception:
+                continue
+        if raw is None:
             return
         d = {"id": "", "title": "", "text": "", "level": "info", "url": ""}
         if raw and raw not in ("-", "none", "null"):
@@ -240,7 +248,8 @@ class Notice:
             else:
                 d["text"] = raw
             if d["text"] or d["title"]:
-                d["id"] = "%08x" % (abs(hash(d["title"] + d["text"])) & 0xFFFFFFFF)
+                # hash() של פייתון משתנה בין הרצות - מזהה יציב כדי שסגירה תישאר סגורה
+                d["id"] = hashlib.sha1((d["title"] + "\x00" + d["text"]).encode("utf-8")).hexdigest()[:12]
         with self.lock:
             self.data = d
 
