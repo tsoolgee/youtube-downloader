@@ -17,6 +17,12 @@ import shutil
 import subprocess
 import sys
 
+try:                       # ה-runner של גיטהאב מדפיס ב-cp1252 ונחנק על עברית
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 VENDOR = os.path.join(ROOT, "vendor")
 NAME = "YT-DLP Studio"                      # שם הבנייה הפנימי של PyInstaller (חייב אנגלית)

@@ -19,6 +19,9 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONIOENCODING: utf-8      # הפלט של הבנייה בעברית
+
 jobs:
   windows:
     runs-on: windows-latest
