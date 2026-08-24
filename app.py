@@ -14,6 +14,7 @@ import lzma
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -41,6 +42,7 @@ APP_NAME = "YT-DLP Studio"
 APP_VERSION = "0.0.1"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 UA = "YT-DLP-Studio/" + APP_VERSION
+NOTICE_URL = "https://raw.githubusercontent.com/%s/main/notice.txt" % UPDATE_REPO
 IS_WIN = os.name == "nt"
 HOME = os.path.expanduser("~")
 FROZEN = getattr(sys, "frozen", False)
@@ -104,6 +106,8 @@ DEFAULT_SETTINGS = {
     "perItem": False,          # איכות שונה לכל הורדה (כבוי כברירת מחדל)
     "theme": "dark",
     "ffmpeg": "",
+    "insecureSSL": True,       # סינוני אינטרנט מחליפים תעודות - בלי זה החיבור נכשל
+    "noticeSeen": "",          # מזהה ההתרעה האחרונה שנסגרה
 }
 
 ITEM_KEYS = ("kind", "quality", "container", "acodec", "abr", "playlist",
@@ -140,6 +144,105 @@ def save_settings(s):
             json.dump(s, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+
+SSL_LAX = ssl.create_default_context()
+SSL_LAX.check_hostname = False
+SSL_LAX.verify_mode = ssl.CERT_NONE
+
+
+def apply_ssl_policy(insecure):
+    """מתעלם מתעודות שגויות - נדרש מאחורי סינון שמחליף תעודות (נטפרי וכדומה)."""
+    try:
+        ssl._create_default_https_context = (
+            ssl._create_unverified_context if insecure else ssl.create_default_context)
+    except Exception:
+        pass
+
+
+def http_get(url, timeout=20, headers=None):
+    """בקשת HTTP שלא נופלת על תעודה של סינון."""
+    req = urllib.request.Request(url, headers=dict({"User-Agent": UA}, **(headers or {})))
+    ctx = SSL_LAX if SETTINGS.get("insecureSSL", True) else None
+    return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+
+
+ERRORS_HE = (
+    ("418", "נחסם על ידי נטפרי"),
+    ("netfree", "נחסם על ידי נטפרי"),
+    ("blocked by", "הקישור חסום על ידי הסינון"),
+    ("private video", "הסרטון פרטי"),
+    ("members-only", "הסרטון פתוח למנויי הערוץ בלבד"),
+    ("confirm your age", "הסרטון מוגבל בגיל — הפעל עוגיות מדפדפן בהגדרות"),
+    ("age-restricted", "הסרטון מוגבל בגיל — הפעל עוגיות מדפדפן בהגדרות"),
+    ("video unavailable", "הסרטון אינו זמין"),
+    ("removed by the uploader", "הסרטון הוסר על ידי המעלה"),
+    ("copyright", "הסרטון הוסר בגלל זכויות יוצרים"),
+    ("not available in your country", "הסרטון חסום במדינה שלך"),
+    ("requested format is not available", "האיכות שנבחרה לא קיימת לסרטון הזה"),
+    ("http error 403", "יוטיוב דחה את ההורדה (403) — נסה שוב או הפעל עוגיות מדפדפן"),
+    ("http error 404", "הקישור לא נמצא (404)"),
+    ("http error 429", "יותר מדי בקשות ליוטיוב — המתן קצת ונסה שוב"),
+    ("certificate", "שגיאת תעודת אבטחה — הפעל 'התעלם משגיאות תעודה' בהגדרות"),
+    ("ssl", "שגיאת תעודת אבטחה — הפעל 'התעלם משגיאות תעודה' בהגדרות"),
+    ("timed out", "פג זמן החיבור"),
+    ("timeout", "פג זמן החיבור"),
+    ("no space left", "אין מקום פנוי בדיסק"),
+    ("permission denied", "אין הרשאת כתיבה לתיקיית היעד"),
+    ("unable to connect", "אין חיבור לאינטרנט"),
+    ("name or service not known", "אין חיבור לאינטרנט"),
+    ("getaddrinfo failed", "אין חיבור לאינטרנט"),
+)
+
+
+def friendly_error(msg):
+    low = (msg or "").lower()
+    for needle, he in ERRORS_HE:
+        if needle in low:
+            return he
+    return msg
+
+
+class Notice:
+    """התרעה חופשית שהמפתח מפרסם בקובץ notice.txt בגיטהאב."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.data = {"id": "", "title": "", "text": "", "level": "info", "url": ""}
+
+    def snapshot(self):
+        with self.lock:
+            return dict(self.data)
+
+    def check_async(self, delay=0.0):
+        threading.Thread(target=self._check, args=(delay,), daemon=True).start()
+
+    def _check(self, delay=0.0):
+        if delay:
+            time.sleep(delay)
+        try:
+            url = NOTICE_URL + "?t=" + str(int(time.time()))
+            with http_get(url, timeout=15, headers={"Cache-Control": "no-cache"}) as r:
+                raw = r.read().decode("utf-8", "replace").strip()
+        except Exception:
+            return
+        d = {"id": "", "title": "", "text": "", "level": "info", "url": ""}
+        if raw and raw not in ("-", "none", "null"):
+            if raw.startswith("{"):
+                try:
+                    j = json.loads(raw)
+                    d["title"] = str(j.get("title") or "")
+                    d["text"] = str(j.get("text") or "")
+                    d["level"] = str(j.get("level") or "info")
+                    d["url"] = str(j.get("url") or "")
+                except Exception:
+                    d["text"] = raw
+            else:
+                d["text"] = raw
+            if d["text"] or d["title"]:
+                d["id"] = "%08x" % (abs(hash(d["title"] + d["text"])) & 0xFFFFFFFF)
+        with self.lock:
+            self.data = d
 
 
 def _exe(name):
@@ -386,6 +489,7 @@ class Item:
         self.total = 0
         self.stage = ""
         self.error = ""
+        self.error_raw = ""
         self.filepath = ""
         self.tmpfile = ""
         self.dlname = ""
@@ -411,7 +515,8 @@ class Item:
             "uploader": self.uploader, "duration": self.duration, "thumbnail": self.thumbnail,
             "percent": round(self.percent, 1), "speed": self.speed, "eta": self.eta,
             "downloaded": self.downloaded, "total": self.total, "stage": self.stage,
-            "error": self.error, "filepath": self.filepath, "label": self.label(),
+            "error": self.error, "errorRaw": self.error_raw,
+            "filepath": self.filepath, "label": self.label(),
             "opts": self.opts, "pi": self.playlist_index, "pc": self.playlist_count,
         }
 
@@ -500,6 +605,7 @@ class Manager:
             it.status = "pending"
             it.cancel = False
             it.error = ""
+            it.error_raw = ""
             it.percent = 0.0
             it.stage = ""
             it.speed = 0
@@ -554,6 +660,7 @@ class Manager:
             "version": yt_dlp.version.__version__,
             "app": APP_VERSION,
             "update": UPD.snapshot(),
+            "notice": NOTE.snapshot(),
         }
 
     # ---------- internals
@@ -587,6 +694,7 @@ class Manager:
                 return
             try:
                 opts = {"quiet": True, "no_warnings": True, "skip_download": True,
+                        "nocheckcertificate": bool(self.settings.get("insecureSSL", True)),
                         "noplaylist": not it.opts.get("playlist"),
                         "extract_flat": "in_playlist", "socket_timeout": 20}
                 self._auth(opts)
@@ -664,6 +772,8 @@ class Manager:
             "progress_hooks": [lambda d: self._hook(it, d)],
             "postprocessor_hooks": [lambda d: self._pp_hook(it, d)],
         }
+        if self.settings.get("insecureSSL", True):
+            y["nocheckcertificate"] = True
         if has_ff:
             y["ffmpeg_location"] = self.ffmpeg
         rl = str(self.settings.get("ratelimit") or "").strip().lower()
@@ -809,7 +919,8 @@ class Manager:
             else:
                 msg = re.sub(r"\x1b\[[0-9;]*m", "", str(e)).replace("ERROR: ", "").strip()
                 it.status = "error"
-                it.error = msg[:400] or "שגיאה לא ידועה"
+                it.error_raw = msg[:400]
+                it.error = friendly_error(msg)[:400] or "שגיאה לא ידועה"
                 it.stage = "שגיאה"
             it.speed = 0
         finally:
@@ -819,8 +930,10 @@ class Manager:
 
 # ----------------------------------------------------------------------------- api bridge
 SETTINGS = load_settings()
+apply_ssl_policy(SETTINGS.get("insecureSSL", True))
 MGR = Manager(SETTINGS)
 UPD = Updater()
+NOTE = Notice()
 
 
 class Api:
@@ -866,6 +979,8 @@ class Api:
                     v = str(v if v is not None else "")
                 SETTINGS[k] = v
                 changed = True
+            if "insecureSSL" in (d or {}):
+                apply_ssl_policy(SETTINGS.get("insecureSSL", True))
             if "ffmpeg" in (d or {}):
                 MGR.ffmpeg = locate_ffmpeg(SETTINGS.get("ffmpeg", ""))
             if "folder" in (d or {}):
@@ -925,6 +1040,15 @@ class Api:
                 return {"ok": open_path(it.opts.get("folder") or SETTINGS["folder"])}
             return {"ok": open_path(it.filepath) if path == "/api/open" else reveal_file(it.filepath)}
 
+        if path == "/api/notice/check":
+            NOTE.check_async()
+            return {"ok": True}
+
+        if path == "/api/notice/dismiss":
+            SETTINGS["noticeSeen"] = str(d.get("id") or "")
+            save_settings(SETTINGS)
+            return {"ok": True}
+
         if path == "/api/update/check":
             UPD.check_async()
             return {"ok": True}
@@ -959,6 +1083,7 @@ def main():
     )
     api.window = win
     UPD.check_async(delay=4.0)
+    NOTE.check_async(delay=2.0)
     webview.start(debug=os.environ.get("YTS_DEBUG") == "1")
 
 

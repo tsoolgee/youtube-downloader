@@ -187,6 +187,25 @@ input[type=text],input[type=number]{cursor:text;font-weight:500}
 .adv.open{max-height:220px;border-top-color:var(--line2);margin-top:11px;padding-top:11px}
 .adv .tools{margin-top:0}
 
+/* ============================ notice ============================ */
+.notice{display:flex;align-items:flex-start;gap:11px;padding:12px 14px;margin-bottom:12px;border-radius:14px;
+  background:var(--card);border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));
+  box-shadow:var(--shadow),var(--glow);animation:pop .32s var(--ease);position:relative;overflow:hidden}
+.notice[hidden]{display:none}
+.notice::before{content:"";position:absolute;inset-inline-start:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(var(--accent),var(--accent2))}
+.notice .ic{font-size:17px;line-height:1.35;flex:none}
+.notice .ntext{flex:1;min-width:0;font-size:12.5px;line-height:1.75;color:var(--muted);
+  white-space:pre-wrap;word-break:break-word}
+.notice .ntext b{display:block;color:var(--txt);font-size:13.5px;font-weight:650;margin-bottom:2px}
+.notice .ntext b:empty{display:none}
+.notice .btn,.notice .iconbtn{flex:none;align-self:center}
+.notice .iconbtn{width:29px;height:29px;font-size:12px}
+.notice.warn{border-color:color-mix(in srgb,var(--warn) 55%,var(--line))}
+.notice.warn::before{background:var(--warn)}
+.notice.error{border-color:color-mix(in srgb,var(--err) 55%,var(--line))}
+.notice.error::before{background:var(--err)}
+
 /* ============================ progress dock ============================ */
 .dock{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center;padding:13px 16px;margin-bottom:12px;
   animation:pop .3s var(--ease)}
@@ -396,6 +415,13 @@ body:has(.scrim.open) #clipbar{display:none !important}
     <button class="iconbtn" id="setbtn" title="הגדרות">⚙</button>
   </header>
 
+  <div class="notice" id="notice" hidden>
+    <span class="ic" id="noticeic">📢</span>
+    <div class="ntext"><b id="noticetitle"></b><span id="noticetext"></span></div>
+    <button class="btn sm" id="noticelink" hidden>פתיחה</button>
+    <button class="iconbtn" id="noticeclose" title="סגור">✕</button>
+  </div>
+
   <section class="card composer">
     <div class="crow">
       <label for="urls">קישורים להורדה</label>
@@ -555,6 +581,10 @@ body:has(.scrim.open) #clipbar{display:none !important}
         <div class="field"><input type="text" id="s_ffmpeg" dir="ltr" placeholder="ריק = איתור אוטומטי"></div>
       </div>
       <p class="hint" id="ffhint"></p>
+      <div class="srow"><label>תעודות אבטחה</label>
+        <label class="switch" style="flex:1"><input type="checkbox" id="s_ssl"><i></i><b>התעלם משגיאות תעודה</b></label>
+      </div>
+      <p class="hint">סינוני אינטרנט מחליפים את תעודות האתרים. בלי האפשרות הזו ההורדה נכשלת מול סינון שהתעודה שלו לא מותקנת במחשב.</p>
       <div class="srow"><label>גרסת התוכנה</label>
         <div class="field"><input type="text" id="s_ver" readonly dir="ltr" style="cursor:default"></div>
         <button class="btn sm" id="checkupd">בדוק עדכון</button>
@@ -631,7 +661,8 @@ let S = {}, firstPaint = true;
 const CTRL = {
   quality:"#quality", container:"#container", acodec:"#acodec", abr:"#abr",
   playlist:"#playlist", subs:"#subs", thumb:"#thumb", metadata:"#metadata",
-  sponsorblock:"#sponsorblock", sublangs:"#sublangs", perItem:"#peritem"
+  sponsorblock:"#sponsorblock", sublangs:"#sublangs", perItem:"#peritem",
+  insecureSSL:"#s_ssl"
 };
 function syncKind(k){
   $$("#kindseg button").forEach(b => b.classList.toggle("on", b.dataset.k === k));
@@ -945,7 +976,8 @@ function paint(el, it){
   const meta = [`<span class="tag">${esc(it.label)}</span>`];
   if(it.uploader) meta.push(`<span>${esc(it.uploader)}</span>`);
   if(it.pc > 1) meta.push(`<span class="tag">פלייליסט ${it.pi||0}/${it.pc}</span>`);
-  if(it.status === "error" && it.error) meta.push(`<span class="err" title="${esc(it.error)}">${esc(it.error)}</span>`);
+  if(it.status === "error" && it.error)
+    meta.push(`<span class="err" title="${esc(it.errorRaw || it.error)}">${esc(it.error)}</span>`);
   const m = el.querySelector(".meta"), html = meta.join("");
   if(m.dataset.h !== html){ m.dataset.h = html; m.innerHTML = html; }
 
@@ -1126,6 +1158,7 @@ async function poll(){
     }
     $("#ver").textContent = "גרסה " + st.app + " · yt-dlp " + st.version;
     paintUpdate(st.update || {});
+    paintNotice(st.notice || {}, (st.settings || {}).noticeSeen || "");
     $("#ffchip").classList.toggle("bad", !st.ffmpeg && !st.ffmpegBusy);
     $("#fftxt").textContent = st.ffmpeg ? "FFmpeg פעיל" : (st.ffmpegBusy ? "מכין FFmpeg…" : "FFmpeg חסר");
     $("#ffchip").title = st.ffmpeg ? st.ffmpegPath : "ללא FFmpeg לא ניתן למזג איכויות גבוהות או להמיר אודיו";
@@ -1138,6 +1171,28 @@ async function poll(){
 }
 setInterval(poll, 700);
 poll();
+
+/* ---------------- notice from github ---------------- */
+let noticeId = "";
+function paintNotice(nt, seen){
+  const el = $("#notice");
+  if(!nt.id || nt.id === seen){ el.hidden = true; return; }
+  if(noticeId !== nt.id){
+    noticeId = nt.id;
+    el.className = "notice " + (nt.level === "warn" || nt.level === "error" ? nt.level : "");
+    $("#noticeic").textContent = nt.level === "error" ? "⛔" : nt.level === "warn" ? "⚠" : "📢";
+    $("#noticetitle").textContent = nt.title || "";
+    $("#noticetext").textContent = nt.text || "";
+    const lk = $("#noticelink");
+    lk.hidden = !nt.url;
+    lk.onclick = () => api("/api/openurl", {url: nt.url}).catch(()=>{});
+  }
+  el.hidden = false;
+}
+$("#noticeclose").onclick = async () => {
+  $("#notice").hidden = true;
+  try { await api("/api/notice/dismiss", {id: noticeId}); } catch(e){}
+};
 
 /* ---------------- updates ---------------- */
 function paintUpdate(u){
