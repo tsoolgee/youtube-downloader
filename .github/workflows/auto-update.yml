@@ -1,0 +1,69 @@
+name: auto-update
+
+# בודק כל יום אם יצאה גרסה חדשה של yt-dlp. אם כן: מעלה גרסת תוכנה,
+# מתייג, ובונה ומפרסם EXE חדש - הכל בגיטהאב, בלי מגע יד.
+
+on:
+  schedule:
+    - cron: "0 5 * * *"          # כל יום ב-05:00 UTC
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "לבנות גם אם yt-dlp לא השתנה"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.decide.outputs.changed }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest=$(curl -fsSL https://pypi.org/pypi/yt-dlp/json | python3 -c 'import json,sys; print(json.load(sys.stdin)["info"]["version"])')
+          current=$(cat ytdlp-version.txt 2>/dev/null | tr -d "[:space:]" || echo "none")
+          echo "yt-dlp בגיטהאב: $latest | בגרסה הנוכחית: $current"
+
+          if [ "$latest" = "$current" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "אין גרסה חדשה - לא בונים"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # העלאת ספרת התיקון של גרסת התוכנה
+          app=$(grep -oP 'APP_VERSION = "\K[^"]+' app.py)
+          IFS=. read -r a b c <<< "$app"
+          new="$a.$b.$((c + 1))"
+          echo "גרסת התוכנה: $app -> $new"
+
+          sed -i "s/APP_VERSION = \"$app\"/APP_VERSION = \"$new\"/" app.py
+          echo "$latest" > ytdlp-version.txt
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py ytdlp-version.txt
+          git commit -m "Auto-update to yt-dlp $latest (app $new)"
+          git tag "v$new"
+          git push origin HEAD:main
+          git push origin "v$new"
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "tag=v$new" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: check
+    if: needs.check.outputs.changed == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      tag: ${{ needs.check.outputs.tag }}
+    permissions:
+      contents: write

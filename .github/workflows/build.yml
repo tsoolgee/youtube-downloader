@@ -4,6 +4,17 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release:
+        description: "לפרסם שחרור (רק אם יש תגית)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      tag:
+        description: "התגית שאליה לפרסם את הקובץ"
+        type: string
+        required: false
 
 permissions:
   contents: write
@@ -13,6 +24,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -21,6 +34,24 @@ jobs:
       - name: Install dependencies
         run: pip install -U yt-dlp pywebview pyinstaller pillow
 
+      - name: Record the yt-dlp version being bundled
+        shell: pwsh
+        run: |
+          $v = python -c "import yt_dlp; print(yt_dlp.version.__version__)"
+          "yt-dlp $v" | Tee-Object -FilePath bundled.txt
+          "YTDLP=$v" >> $env:GITHUB_ENV
+
+      # אם התגית לא תואמת ל-APP_VERSION, כל התקנה קיימת תציע לעדכן לנצח
+      - name: Verify APP_VERSION matches the tag
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        shell: pwsh
+        run: |
+          $ref = if ("${{ inputs.tag }}") { "${{ inputs.tag }}" } else { "${{ github.ref_name }}" }
+          $tag = $ref.TrimStart('v')
+          $ver = (Select-String -Path app.py -Pattern 'APP_VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          if ($tag -ne $ver) { throw "tag $tag != APP_VERSION $ver - bump APP_VERSION in app.py first" }
+          "version ok: $ver"
+
       - name: Fetch FFmpeg
         shell: pwsh
         run: |
@@ -28,19 +59,9 @@ jobs:
           Invoke-WebRequest $url -OutFile ff.zip
           Expand-Archive ff.zip -DestinationPath ffsrc
           New-Item -ItemType Directory -Force bin | Out-Null
-          Get-ChildItem ffsrc -Recurse -Include ffmpeg.exe,ffprobe.exe |
+          Get-ChildItem ffsrc -Recurse -Include ffmpeg.exe |
             ForEach-Object { Copy-Item $_.FullName bin }
-          Get-ChildItem bin
-
-      # אם התגית לא תואמת ל-APP_VERSION, כל התקנה קיימת תציע לעדכן לנצח
-      - name: Verify APP_VERSION matches the tag
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}".TrimStart('v')
-          $ver = (Select-String -Path app.py -Pattern 'APP_VERSION = "([^"]+)"').Matches[0].Groups[1].Value
-          if ($tag -ne $ver) { throw "tag $tag != APP_VERSION $ver - bump APP_VERSION in app.py first" }
-          "version ok: $ver"
+          Get-ChildItem bin | Select-Object Name, Length
 
       - name: Build single EXE
         run: python build.py
@@ -51,25 +72,35 @@ jobs:
           # שם הקובץ הבנוי בעברית; גיטהאב לא מקבל שמות נכסים לא-אנגליים
           $exe = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
           Move-Item $exe.FullName "dist/YT-DLP-Studio.exe" -Force
+          "{0:N1} MB" -f ((Get-Item "dist/YT-DLP-Studio.exe").Length / 1MB)
+
+      - name: Keep the build for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: YT-DLP-Studio-exe
+          path: dist/YT-DLP-Studio.exe
+          retention-days: 14
 
       # שם הנכס חייב להישאר קבוע - עליו נשען הקישור
       # releases/latest/download/YT-DLP-Studio.exe וגם המעדכן שבתוך התוכנה
       - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: "dist/YT-DLP-Studio.exe"
           generate_release_notes: true
 
       # גיטהאב חותך עברית משמות קבצים, אבל מקבל אותה בתווית -
       # התווית היא מה שמוצג בעמוד השחרור
       - name: Label the asset in Hebrew
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $id = gh api "repos/${{ github.repository }}/releases/tags/${{ github.ref_name }}" `
-                  --jq '.assets[] | select(.name=="YT-DLP-Studio.exe") | .id'
+          $tag = if ("${{ inputs.tag }}") { "${{ inputs.tag }}" } else { "${{ github.ref_name }}" }
+          $id = gh api "repos/${{ github.repository }}/releases/tags/$tag" `
+                  --jq '.assets[] | select(.name==\"YT-DLP-Studio.exe\") | .id'
           gh api -X PATCH "repos/${{ github.repository }}/releases/assets/$id" -f label="יוטיוב הורדה" | Out-Null
           "labelled asset $id"
