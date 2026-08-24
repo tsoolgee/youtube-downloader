@@ -40,7 +40,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.4"
+APP_VERSION = "0.0.5"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 UA = "YT-DLP-Studio/" + APP_VERSION
 NOTICE_API = "https://api.github.com/repos/%s/contents/notice.txt" % UPDATE_REPO
@@ -140,6 +140,14 @@ ITEM_KEYS = ("kind", "quality", "container", "acodec", "abr", "playlist",
              "subs", "sublangs", "thumb", "metadata", "sponsorblock", "folder", "template")
 
 URL_RE = re.compile(r"(?:https?://|www\.)[^\s,;\"'<>\]\[)(]+", re.I)
+YT_ID_RE = re.compile(
+    r"(?:v=|/shorts/|youtu\.be/|/embed/|/live/|/v/)([A-Za-z0-9_-]{11})")
+
+
+def yt_thumb(url):
+    """תמונה ממוזערת ישירות מהקישור - מוצגת מיד, בלי בקשת רשת מצד התוכנה."""
+    m = YT_ID_RE.search(url or "")
+    return "https://i.ytimg.com/vi/%s/mqdefault.jpg" % m.group(1) if m else ""
 
 
 # ----------------------------------------------------------------------------- utils
@@ -541,6 +549,26 @@ class Updater:
         os._exit(0)
 
 
+def clean_partials(it):
+    """מוחק קבצי ביניים (.part/.ytdl) שנשארו אחרי ביטול הורדה."""
+    cand = set()
+    for base in (getattr(it, "tmpfile", ""), getattr(it, "dlname", ""),
+                 getattr(it, "filepath", "")):
+        if not base:
+            continue
+        cand.add(base)
+        cand.add(base + ".part")
+        cand.add(base + ".ytdl")
+    for p in cand:
+        if not (p.endswith(".part") or p.endswith(".ytdl")):
+            continue
+        try:
+            if os.path.isfile(p):
+                os.remove(p)
+        except Exception:
+            pass
+
+
 class Canceled(Exception):
     pass
 
@@ -555,7 +583,7 @@ class Item:
         self.title = url
         self.uploader = ""
         self.duration = 0
-        self.thumbnail = ""
+        self.thumbnail = yt_thumb(url)
         self.percent = 0.0
         self.speed = 0
         self.eta = 0
@@ -779,7 +807,7 @@ class Manager:
 
     def _probe(self, it):
         with self.probe_sem:
-            if it.status != "pending":
+            if it.status in ("done", "error", "canceled") or it.cancel:
                 return
             try:
                 opts = {"quiet": True, "no_warnings": True, "skip_download": True,
@@ -789,19 +817,24 @@ class Manager:
                 self._auth(opts)
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(it.url, download=False)
-                if not info or it.status != "pending":
+                # ההורדה עצמה כבר עדכנה פרטים? לא דורסים אותם
+                if not info or it.status in ("done", "error", "canceled"):
                     return
+                fresh = it.title == it.url or not it.title
                 if info.get("_type") == "playlist":
                     ents = [e for e in (info.get("entries") or []) if e]
-                    it.title = info.get("title") or it.url
+                    if fresh:
+                        it.title = info.get("title") or it.url
                     it.playlist_count = info.get("playlist_count") or len(ents)
-                    it.uploader = info.get("uploader") or info.get("channel") or ""
-                    it.thumbnail = self._thumb(ents[0] if ents else None) or self._thumb(info)
+                    it.uploader = it.uploader or info.get("uploader") or info.get("channel") or ""
+                    it.thumbnail = (self._thumb(ents[0] if ents else None)
+                                    or self._thumb(info) or it.thumbnail)
                 else:
-                    it.title = info.get("title") or it.url
-                    it.uploader = info.get("uploader") or info.get("channel") or ""
-                    it.duration = int(info.get("duration") or 0)
-                    it.thumbnail = self._thumb(info)
+                    if fresh:
+                        it.title = info.get("title") or it.url
+                    it.uploader = it.uploader or info.get("uploader") or info.get("channel") or ""
+                    it.duration = it.duration or int(info.get("duration") or 0)
+                    it.thumbnail = self._thumb(info) or it.thumbnail
             except Exception:
                 pass
 

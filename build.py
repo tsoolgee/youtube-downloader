@@ -21,7 +21,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 VENDOR = os.path.join(ROOT, "vendor")
 NAME = "YT-DLP Studio"                      # שם הבנייה הפנימי של PyInstaller (חייב אנגלית)
 DIST_NAME = "הורדה ניידת מיוטיוב צול גאה"     # שם הקובץ שהמשתמש מקבל
-NEEDED = ("ffmpeg.exe", "ffprobe.exe") if os.name == "nt" else ("ffmpeg", "ffprobe")
+# רק ffmpeg נארז. ffprobe מוסיף 26MB ל-EXE ואינו נדרש: נבדק שהורדה, המרה
+# ל-MP3, הטמעת תמונה וכתיבת מטא-דאטה עובדות בלעדיו.
+NEEDED = ("ffmpeg.exe",) if os.name == "nt" else ("ffmpeg",)
 
 
 def log(msg):
