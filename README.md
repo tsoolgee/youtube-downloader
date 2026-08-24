@@ -24,9 +24,12 @@ python app.py
 ```
 python build.py
 ```
-התוצאה: `dist/YT-DLP Studio.exe` — קובץ אחד שרץ במחשב **בלי פייתון ובלי FFmpeg מותקן**.
-FFmpeg ארוז דחוס בתוך ה-EXE ונפרס אוטומטית ל-`%LOCALAPPDATA%\YT-DLP Studio\bin`
-בהפעלה הראשונה בלבד (בזמן הזה הצ'יפ בכותרת מציג "מכין FFmpeg…").
+התוצאה: `dist/הורדה ניידת מיוטיוב צול גאה.exe` — כ-58MB, קובץ אחד שרץ במחשב
+**בלי פייתון ובלי FFmpeg מותקן**. FFmpeg ארוז דחוס בתוך ה-EXE (26MB) ונפרס אוטומטית
+ל-`%LOCALAPPDATA%\YT-DLP Studio\bin` בהפעלה הראשונה בלבד, בכ-6 שניות, עם חיווי התקדמות.
+
+`ffprobe` לא נארז בכוונה: הוא מוסיף 26MB ואינו נדרש — נבדק שהורדה, מיזוג וידאו+אודיו,
+המרה ל-MP3, הטמעת תמונה וכתיבת מטא-דאטה עובדות בלעדיו.
 
 אפשרויות: `python build.py --ffmpeg "C:\path\to\ffmpeg\bin"` לצירוף בילד אחר,
 `python build.py --no-ffmpeg` ל-EXE קטן שדורש FFmpeg במחשב היעד.
