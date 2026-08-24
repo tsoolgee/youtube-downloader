@@ -47,7 +47,10 @@ jobs:
 
       - name: Normalise asset name
         shell: pwsh
-        run: Move-Item "dist/YT-DLP Studio.exe" "dist/YT-DLP-Studio.exe" -Force
+        run: |
+          # שם הקובץ הבנוי בעברית; גיטהאב לא מקבל שמות נכסים לא-אנגליים
+          $exe = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          Move-Item $exe.FullName "dist/YT-DLP-Studio.exe" -Force
 
       # שם הנכס חייב להישאר קבוע - עליו נשען הקישור
       # releases/latest/download/YT-DLP-Studio.exe וגם המעדכן שבתוך התוכנה

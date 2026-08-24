@@ -7,7 +7,7 @@
     python build.py --ffmpeg PATH   # תיקייה שמכילה ffmpeg.exe/ffprobe.exe לצירוף
     python build.py --no-ffmpeg     # בלי לצרף FFmpeg (EXE קטן, דורש FFmpeg במחשב היעד)
 
-התוצאה:  dist/YT-DLP Studio.exe
+התוצאה:  dist/הורדה ניידת מיוטיוב צול גאה.exe
 """
 
 import argparse
@@ -19,7 +19,8 @@ import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 VENDOR = os.path.join(ROOT, "vendor")
-NAME = "YT-DLP Studio"
+NAME = "YT-DLP Studio"                      # שם הבנייה הפנימי של PyInstaller (חייב אנגלית)
+DIST_NAME = "הורדה ניידת מיוטיוב צול גאה"     # שם הקובץ שהמשתמש מקבל
 NEEDED = ("ffmpeg.exe", "ffprobe.exe") if os.name == "nt" else ("ffmpeg", "ffprobe")
 
 
@@ -124,7 +125,13 @@ def build(with_ffmpeg, icon):
     r = subprocess.run(cmd, cwd=ROOT)
     if r.returncode != 0:
         sys.exit(r.returncode)
-    out = os.path.join(ROOT, "dist", NAME + (".exe" if os.name == "nt" else ""))
+    ext = ".exe" if os.name == "nt" else ""
+    built = os.path.join(ROOT, "dist", NAME + ext)
+    out = os.path.join(ROOT, "dist", DIST_NAME + ext)
+    if os.path.isfile(built) and os.path.abspath(built) != os.path.abspath(out):
+        if os.path.isfile(out):
+            os.remove(out)
+        os.replace(built, out)
     if os.path.isfile(out):
         print("\n  מוכן: %s  (%.1f MB)" % (out, os.path.getsize(out) / 1048576))
     return out
