@@ -743,10 +743,16 @@ $("#pastebtn").onclick = async () => {
   toast(n ? (n===1 ? "קישור הודבק" : n+" קישורים הודבקו") : "הקישור כבר בתיבה", n ? "ok" : "");
 };
 
-$$("#kindseg button").forEach(b => b.onclick = () => { S.kind = b.dataset.k; syncKind(S.kind); pushSettings({kind:S.kind}); });
+function backToBox(){ try { box.focus({preventScroll:true}); } catch(e){ box.focus(); } }
+$$("#kindseg button").forEach(b => b.onclick = () => {
+  S.kind = b.dataset.k; syncKind(S.kind); pushSettings({kind:S.kind}); backToBox();
+});
 for(const [k,sel] of Object.entries(CTRL)){
   const el = $(sel); if(!el) continue;
-  el.addEventListener("change", () => pushSettings({[k]: el.type==="checkbox" ? el.checked : el.value}));
+  el.addEventListener("change", () => {
+    pushSettings({[k]: el.type === "checkbox" ? el.checked : el.value});
+    if(el.closest(".composer")) backToBox();
+  });
   if(el.tagName === "INPUT" && el.type === "text") el.addEventListener("input", () => pushSettings({[k]: el.value}));
 }
 $$("#presets .pz").forEach(b => b.onclick = () => {
@@ -754,6 +760,7 @@ $$("#presets .pz").forEach(b => b.onclick = () => {
   if(p.kind){ S.kind = p.kind; syncKind(p.kind); }
   for(const [k,v] of Object.entries(p)) if(k !== "kind" && $(CTRL[k])) $(CTRL[k]).value = v;
   pushSettings(p, true);
+  backToBox();
 });
 $("#advbtn").onclick = () => $("#adv").classList.toggle("open");
 
@@ -890,8 +897,9 @@ document.addEventListener("keydown", e => {
       return;
     }
     const t = e.target;
-    const typing = t && (t === box || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-    const clicky = t && (t.tagName === "BUTTON" || t.tagName === "SELECT" || t.tagName === "A");
+    const typing = t && (t === box || t.isContentEditable ||
+                         (t.tagName === "INPUT" && t.type !== "checkbox") || t.tagName === "TEXTAREA");
+    const clicky = t && (t.tagName === "BUTTON" || t.tagName === "A");
     if(!typing && !clicky && urlsOf(box.value).length){ e.preventDefault(); addFromBox(); }
   }
 });

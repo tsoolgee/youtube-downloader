@@ -1076,6 +1076,17 @@ class Api:
         return {"__error": "unknown route " + str(path)}
 
 
+def close_splash(*_args, **_kw):
+    """סוגר את מסך הטעינה של ה-EXE ברגע שהחלון האמיתי מוכן.
+    מקבל ארגומנטים חופשיים כי pywebview מעביר את החלון למאזין."""
+    try:
+        import pyi_splash            # קיים רק בתוך ה-EXE
+        if pyi_splash.is_alive():
+            pyi_splash.close()
+    except Exception:
+        pass
+
+
 def main():
     try:
         with open(res_path("ui.html"), "r", encoding="utf-8") as f:
@@ -1091,6 +1102,12 @@ def main():
         background_color="#06080f", text_select=False,
     )
     api.window = win
+    for event in ("shown", "loaded"):               # מה שיקרה קודם סוגר את מסך הטעינה
+        try:
+            getattr(win.events, event).__iadd__(close_splash)
+        except Exception:
+            pass
+    threading.Timer(20.0, close_splash).start()    # רשת ביטחון אם האירוע לא נורה
     UPD.check_async(delay=4.0)
     NOTE.check_async(delay=2.0)
     webview.start(debug=os.environ.get("YTS_DEBUG") == "1")

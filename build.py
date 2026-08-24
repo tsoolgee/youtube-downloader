@@ -104,7 +104,63 @@ def make_icon():
     return ico
 
 
-def build(with_ffmpeg, icon):
+def make_splash():
+    """תמונת מסך הטעינה שמוצגת בזמן שה-EXE מחלץ את עצמו (לפני שפייתון עולה)."""
+    png = os.path.join(ROOT, "splash.png")
+    if os.path.isfile(png):
+        return png
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return ""
+    W, H = 460, 200
+    img = Image.new("RGB", (W, H), (8, 11, 20))
+    d = ImageDraw.Draw(img)
+    for y in range(H):                                   # רקע עם נגיעת גרדיאנט
+        t = y / (H - 1)
+        d.line([(0, y), (W, y)], fill=(int(8 + 14 * t), int(11 + 16 * t), int(20 + 32 * t)))
+    d.rectangle([0, 0, W - 1, H - 1], outline=(70, 60, 130))
+    d.rectangle([0, 0, W - 1, 3], fill=(139, 92, 246))
+
+    right = W - 34                                       # שוליים ימניים (פריסה RTL)
+    ico = os.path.join(ROOT, "icon.ico")
+    if os.path.isfile(ico):
+        try:
+            logo = Image.open(ico)
+            logo.size = (48, 48)
+            logo.load()
+            logo = logo.convert("RGBA").resize((56, 56), Image.LANCZOS)
+            img.paste(logo, (right - 56, 44), logo)
+            right -= 56 + 18                             # הטקסט מתחיל משמאל לאייקון
+        except Exception:
+            pass
+
+    def font(name, size):
+        for f in (name, "segoeui.ttf", "arial.ttf"):
+            try:
+                return ImageFont.truetype(os.path.join(os.environ.get("WINDIR", "C:/Windows"),
+                                                       "Fonts", f), size)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
+    # PIL מצייר משמאל לימין; היפוך התווים נותן סדר נכון לטקסט עברי
+    rtl = lambda t: t[::-1]
+    d.text((right, 46), rtl("יוטיוב הורדה"), font=font("segoeuib.ttf", 25),
+           fill=(233, 238, 250), anchor="ra")
+    d.text((right, 82), rtl("התוכנה נטענת"), font=font("segoeui.ttf", 17),
+           fill=(152, 164, 192), anchor="ra")
+    d.text((right, 110), rtl("רגע אחד, מכינים את הקבצים"), font=font("segoeui.ttf", 12),
+           fill=(105, 116, 146), anchor="ra")
+
+    d.rounded_rectangle([34, H - 46, W - 34, H - 40], radius=3, fill=(30, 36, 58))
+    d.rounded_rectangle([34, H - 46, 34 + int((W - 68) * 0.42), H - 40], radius=3, fill=(124, 92, 246))
+    img.save(png)
+    log("נוצר splash.png")
+    return png
+
+
+def build(with_ffmpeg, icon, splash):
     sep = ";" if os.name == "nt" else ":"
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
            "--onefile", "--windowed", "--name", NAME,
@@ -112,7 +168,6 @@ def build(with_ffmpeg, icon):
            "--collect-all", "yt_dlp",
            "--collect-all", "webview",
            "--hidden-import", "clr_loader",
-           "--exclude-module", "tkinter",
            "--exclude-module", "matplotlib",
            "--exclude-module", "numpy",
            "--exclude-module", "PIL"]
@@ -120,6 +175,8 @@ def build(with_ffmpeg, icon):
         cmd += ["--add-data", "vendor" + sep + "vendor"]
     if icon:
         cmd += ["--icon", icon]
+    if splash:
+        cmd += ["--splash", splash]
     cmd.append("app.py")
     log("מריץ PyInstaller…")
     r = subprocess.run(cmd, cwd=ROOT)
@@ -144,4 +201,4 @@ if __name__ == "__main__":
     a = ap.parse_args()
     print("=== בניית %s ===" % NAME)
     ok = False if a.no_ffmpeg else prepare_vendor(a.ffmpeg)
-    build(ok, make_icon())
+    build(ok, make_icon(), make_splash())
