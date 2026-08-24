@@ -40,7 +40,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.5"
+APP_VERSION = "0.0.6"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 UA = "YT-DLP-Studio/" + APP_VERSION
 NOTICE_API = "https://api.github.com/repos/%s/contents/notice.txt" % UPDATE_REPO
