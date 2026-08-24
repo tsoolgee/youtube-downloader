@@ -313,6 +313,11 @@ input[type=text],input[type=number]{cursor:text;font-weight:500}
 .mini:active{transform:scale(.92)}
 .mini.x:hover{color:var(--err);border-color:color-mix(in srgb,var(--err) 55%,var(--line))}
 .mini.go:hover{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,var(--line))}
+.acts .btn.go{height:29px;padding:0 13px;font-size:12px;font-weight:650;
+  color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--line));
+  background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.acts .btn.go:hover{background:color-mix(in srgb,var(--ok) 20%,transparent);
+  border-color:color-mix(in srgb,var(--ok) 70%,transparent)}
 
 .empty{margin:auto;text-align:center;color:var(--faint);padding:44px 20px;animation:pop .45s var(--ease)}
 .empty .big{font-size:52px;margin-bottom:14px;opacity:.45;animation:float 4.5s ease-in-out infinite}
@@ -821,9 +826,10 @@ function appendUrls(list){
   return add.length;
 }
 $("#pastebtn").onclick = async () => {
+  /* הלוח נקרא בצד פייתון (Win32). קריאה דרך navigator.clipboard גורמת
+     ל-WebView2 לבקש הרשאה בכל פעם מחדש - ולכן היא לא בשימוש. */
   let txt = "";
-  try { txt = await navigator.clipboard.readText(); } catch(e){}
-  if(!txt){ try { txt = (await api("/api/clipboard")).text || ""; } catch(e){} }
+  try { txt = (await api("/api/clipboard")).text || ""; } catch(e){}
   if(!txt){ toast("לא הצלחתי לקרוא את הלוח — נסה Ctrl+V", "er"); box.focus(); return; }
   const found = urlsOf(txt);
   if(!found.length){ toast("לא נמצא קישור בלוח", "er"); return; }
@@ -1061,19 +1067,24 @@ function actionsFor(it){
   if(it.status === "downloading" || it.status === "processing") return [["■","עצור","cancel"]];
   if(it.status === "done"){
     const a = [];
-    if(it.filepath){ a.push(["▶","פתח קובץ","open"]); a.push(["📂","הצג בתיקייה","reveal"]); }
+    if(it.filepath){ a.push(["▶ פתיחה","פתח את הקובץ","open","wide"]); a.push(["📂","הצג בתיקייה","reveal"]); }
     return a.concat([["↻","הורד שוב","retry"],["✕","הסר","rm"]]);
   }
   return [["↻","נסה שוב","retry"],["✎","שנה איכות","edit"],["✕","הסר","rm"]];
 }
+const setText = (el, v) => { if(el && el.textContent !== v) el.textContent = v; };
+const setHidden = (el, v) => { if(el && el.hidden !== !!v) el.hidden = !!v; };
+const setTitle = (el, v) => { if(el && el.title !== v) el.title = v; };
+const setWidth = (el, v) => { const w = v + "%"; if(el && el.style.width !== w) el.style.width = w; };
+
 function paint(el, it){
-  el.dataset.s = it.status;
+  if(el.dataset.s !== it.status) el.dataset.s = it.status;
   const img = el.querySelector("img"), ph = el.querySelector(".ph"), dur = el.querySelector(".dur");
   if(it.thumbnail && img.dataset.src !== it.thumbnail){
     img.dataset.src = it.thumbnail; img.src = it.thumbnail; img.hidden = false; ph.hidden = true;
     img.onerror = () => { img.hidden = true; ph.hidden = false; };
   }
-  if(it.duration){ dur.hidden = false; dur.textContent = fmtTime(it.duration); }
+  if(it.duration && dur.hidden){ setHidden(dur, false); setText(dur, fmtTime(it.duration)); }
   const t = el.querySelector(".title");
   if(t.textContent !== it.title){ t.textContent = it.title; t.title = it.url; }
   const [txt, cls] = BADGE[it.status] || ["", ""];
@@ -1090,8 +1101,8 @@ function paint(el, it){
   const m = el.querySelector(".meta"), html = meta.join("");
   if(m.dataset.h !== html){ m.dataset.h = html; m.innerHTML = html; }
 
-  el.querySelector(".fill").style.width =
-    (it.status==="done" ? 100 : it.status==="pending" ? 0 : it.percent) + "%";
+  setWidth(el.querySelector(".fill"),
+           it.status === "done" ? 100 : it.status === "pending" ? 0 : it.percent);
 
   let stats = "";
   if(it.status === "downloading"){
@@ -1109,15 +1120,16 @@ function paint(el, it){
   } else if(it.status === "pending"){ stats = "ממתין בתור";
   } else if(it.status === "error"){ stats = "ההורדה נכשלה";
   } else if(it.status === "canceled"){ stats = "ההורדה בוטלה"; }
-  const st = el.querySelector(".stats");
-  if(st.textContent !== stats){ st.textContent = stats; st.title = stats; }
+  const stEl = el.querySelector(".stats");
+  if(stEl.textContent !== stats){ stEl.textContent = stats; stEl.title = stats; }
 
   const acts = actionsFor(it), key = acts.map(a=>a[2]).join(",");
   const abox = el.querySelector(".acts");
   if(abox.dataset.k !== key){
     abox.dataset.k = key;
-    abox.innerHTML = acts.map(([ic,tt,ac]) =>
-      `<button class="mini ${ac==="rm"?"x":ac==="open"?"go":""}" title="${tt}" data-a="${ac}">${ic}</button>`).join("");
+    abox.innerHTML = acts.map(([ic,tt,ac,wide]) => wide
+      ? `<button class="btn sm go" title="${tt}" data-a="${ac}">${ic}</button>`
+      : `<button class="mini ${ac==="rm"?"x":ac==="open"?"go":""}" title="${tt}" data-a="${ac}">${ic}</button>`).join("");
     abox.querySelectorAll("button").forEach(b => b.onclick = () => act(b.dataset.a, it.id));
   }
 }
@@ -1137,8 +1149,8 @@ function updateDock(items, c, speed){
   const qpct = qn ? tracked.reduce((a, i) =>
     a + (i.status === "done" || i.status === "error" ? 100 : i.status === "pending" ? 0 : i.percent), 0) / qn : 0;
 
-  if(!qn){ dock.hidden = true; return 0; }
-  dock.hidden = false;
+  if(!qn){ setHidden(dock, true); return 0; }
+  setHidden(dock, false);
 
   /* --- הורדה נוכחית --- */
   const nm = $("#curname"), pc = $("#curpc"), fill = $("#curfill"), sub = $("#cursub");
@@ -1146,9 +1158,9 @@ function updateDock(items, c, speed){
     const t = cur.title;
     if(nm.textContent !== t){ nm.textContent = t; nm.title = cur.url; }
     const p = cur.status === "processing" ? 100 : cur.percent;
-    pc.textContent = p.toFixed(p >= 100 ? 0 : 1) + "%";
-    fill.style.width = p + "%";
-    fill.className = "fill live";
+    setText(pc, p.toFixed(p >= 100 ? 0 : 1) + "%");
+    setWidth(fill, p);
+    if(fill.className !== "fill live") fill.className = "fill live";
     const s = [];
     if(cur.status === "processing") s.push(`<b>${esc(cur.stage || "מעבד")}…</b>`);
     else {
@@ -1162,19 +1174,19 @@ function updateDock(items, c, speed){
     if(sub.dataset.h !== h){ sub.dataset.h = h; sub.innerHTML = h; }
   } else {
     if(nm.textContent !== "אין הורדה פעילה"){ nm.textContent = "אין הורדה פעילה"; nm.title = ""; }
-    pc.textContent = "—";
-    fill.style.width = "0%";
-    fill.className = "fill";
+    setText(pc, "—");
+    setWidth(fill, 0);
+    if(fill.className !== "fill") fill.className = "fill";
     const h = c.pending ? `<b>${c.pending}</b> ממתינים להתחיל` : "התור סיים לעבוד";
     if(sub.dataset.h !== h){ sub.dataset.h = h; sub.innerHTML = h; }
   }
 
   /* --- התור כולו --- */
-  $("#allname").textContent = `${c.done} מתוך ${qn} הושלמו`;
-  $("#allpc").textContent = Math.round(qpct) + "%";
-  const af = $("#allfill");
-  af.style.width = qpct + "%";
-  af.className = "fill q" + (c.active ? " live" : "");
+  setText($("#allname"), `${c.done} מתוך ${qn} הושלמו`);
+  setText($("#allpc"), Math.round(qpct) + "%");
+  const af = $("#allfill"), cls = "fill q" + (c.active ? " live" : "");
+  setWidth(af, qpct);
+  if(af.className !== cls) af.className = cls;
   const a = [];
   if(live.length) a.push(`<b>${live.length}</b> פעילות`);
   if(c.pending) a.push(`<b>${c.pending}</b> בתור`);
@@ -1212,13 +1224,14 @@ function render(state){
     if(v){ if(bb){ if(bb.textContent != v) bb.textContent = v; } else b.insertAdjacentHTML("beforeend", `<b>${v}</b>`); }
     else if(bb) bb.remove();
   });
-  $("#speedchip").style.display = speed ? "" : "none";
-  $("#speedtxt").textContent = fmtSpeed(speed);
+  const sc = $("#speedchip"), disp = speed ? "" : "none";
+  if(sc.style.display !== disp) sc.style.display = disp;
+  setText($("#speedtxt"), fmtSpeed(speed));
 
   const q = updateDock(items, c, speed);
-  const tf = $("#topfill");
-  if(c.live){ tf.style.opacity = 1; tf.style.width = q + "%"; }
-  else { tf.style.opacity = 0; tf.style.width = "0%"; }
+  const tf = $("#topfill"), op = c.live ? "1" : "0";
+  if(tf.style.opacity !== op) tf.style.opacity = op;
+  setWidth(tf, c.live ? q : 0);
 
   const parts = [];
   if(c.live) parts.push(`<span>פעילות <b>${c.live}</b></span>`);
@@ -1237,13 +1250,17 @@ function render(state){
   const list = $("#list");
   if(!show.length){
     nodes.clear();
-    list.innerHTML = `<div class="empty"><div class="big">${items.length?"🔎":"⬇"}</div>
-      <h3>${items.length ? "אין פריטים בתצוגה הזו" : "התור ריק"}</h3>
-      <p>${items.length ? "בחר לשונית אחרת כדי לראות את שאר הפריטים." :
-        'הדבק קישור למעלה ולחץ <kbd>Enter</kbd><br>אפשר לגרור קישור לחלון, ולהוסיף עוד קישורים גם בזמן שהורדות רצות.'}</p></div>`;
+    const key = items.length ? "filtered" : "empty";
+    if(list.dataset.empty !== key){          // בלי זה המצב הריק נבנה מחדש כל רענון ומהבהב
+      list.dataset.empty = key;
+      list.innerHTML = `<div class="empty"><div class="big">${items.length?"🔎":"⬇"}</div>
+        <h3>${items.length ? "אין פריטים בתצוגה הזו" : "התור ריק"}</h3>
+        <p>${items.length ? "בחר לשונית אחרת כדי לראות את שאר הפריטים." :
+          'הדבק קישור למעלה ולחץ <kbd>Enter</kbd><br>אפשר לגרור קישור לחלון, ולהוסיף עוד קישורים גם בזמן שהורדות רצות.'}</p></div>`;
+    }
     return;
   }
-  if(list.firstElementChild && list.firstElementChild.classList.contains("empty")) list.innerHTML = "";
+  if(list.dataset.empty){ list.dataset.empty = ""; list.innerHTML = ""; }
   const seen = new Set();
   show.forEach((it, i) => {
     seen.add(it.id);
@@ -1265,16 +1282,17 @@ async function poll(){
       firstPaint = false;
       applySettingsToUI(st.settings);
     }
-    $("#ver").textContent = "גרסה " + st.app + " · yt-dlp " + st.version;
+    setText($("#ver"), "גרסה " + st.app + " · yt-dlp " + st.version);
     paintPrep(st);
     paintUpdate(st.update || {});
     paintNotice(st.notice || {}, (st.settings || {}).noticeSeen || "");
     $("#ffchip").classList.toggle("bad", !st.ffmpeg && !st.ffmpegBusy);
-    $("#fftxt").textContent = st.ffmpeg ? "FFmpeg פעיל" : (st.ffmpegBusy ? "מכין FFmpeg…" : "FFmpeg חסר");
-    $("#ffchip").title = st.ffmpeg ? st.ffmpegPath : "ללא FFmpeg לא ניתן למזג איכויות גבוהות או להמיר אודיו";
-    $("#ffhint").textContent = st.ffmpeg ? "נמצא: " + st.ffmpegPath
+    setText($("#fftxt"), st.ffmpeg ? "FFmpeg פעיל" : (st.ffmpegBusy ? "מכין FFmpeg…" : "FFmpeg חסר"));
+    setTitle($("#ffchip"), st.ffmpeg ? st.ffmpegPath
+             : "ללא FFmpeg לא ניתן למזג איכויות גבוהות או להמיר אודיו");
+    setText($("#ffhint"), st.ffmpeg ? "נמצא: " + st.ffmpegPath
       : (st.ffmpegBusy ? "פורס את FFmpeg המצורף לתוכנה — רק בהפעלה הראשונה…"
-                       : "FFmpeg לא נמצא — האיכויות מוגבלות והמרת אודיו מושבתת.");
+                       : "FFmpeg לא נמצא — האיכויות מוגבלות והמרת אודיו מושבתת."));
     render(st);
     pollFails = 0;
   }catch(e){
@@ -1288,20 +1306,20 @@ poll();
 /* ---------------- first-run preparation ---------------- */
 function paintPrep(st){
   const el = $("#prep");
-  if(!st.ffmpegBusy){ el.hidden = true; return; }
-  el.hidden = false;
+  if(!st.ffmpegBusy){ setHidden(el, true); return; }
+  setHidden(el, false);
   const p = st.ffmpegPercent || 0;
-  $("#prepfill").style.width = p + "%";
-  $("#preptext").textContent =
+  setWidth($("#prepfill"), p);
+  setText($("#preptext"),
     "פורסים את FFmpeg מתוך הקובץ — " + Math.round(p) + "%. אפשר להוסיף קישורים כבר עכשיו, " +
-    "ההורדות יתחילו ברגע שזה מסתיים.";
+    "ההורדות יתחילו ברגע שזה מסתיים.");
 }
 
 /* ---------------- notice from github ---------------- */
 let noticeId = "";
 function paintNotice(nt, seen){
   const el = $("#notice");
-  if(!nt.id || nt.id === seen){ el.hidden = true; return; }
+  if(!nt.id || nt.id === seen){ setHidden(el, true); return; }
   if(noticeId !== nt.id){
     noticeId = nt.id;
     el.className = "notice " + (nt.level === "warn" || nt.level === "error" ? nt.level : "");
@@ -1309,10 +1327,10 @@ function paintNotice(nt, seen){
     $("#noticetitle").textContent = nt.title || "";
     $("#noticetext").textContent = nt.text || "";
     const lk = $("#noticelink");
-    lk.hidden = !nt.url;
+    setHidden(lk, !nt.url);
     lk.onclick = () => api("/api/openurl", {url: nt.url}).catch(()=>{});
   }
-  el.hidden = false;
+  setHidden(el, false);
 }
 $("#noticeclose").onclick = async () => {
   $("#notice").hidden = true;
@@ -1321,24 +1339,24 @@ $("#noticeclose").onclick = async () => {
 
 /* ---------------- updates ---------------- */
 function paintUpdate(u){
-  const chip = $("#updchip"), txt = $("#updtxt");
+  const chip = $("#updtxt") && $("#updchip"), txt = $("#updtxt");
   if(u.busy){
-    chip.hidden = false;
-    txt.textContent = "מעדכן… " + Math.round(u.percent || 0) + "%";
+    setHidden(chip, false);
+    setText(txt, "מעדכן… " + Math.round(u.percent || 0) + "%");
   } else if(u.available){
-    chip.hidden = false;
-    txt.textContent = "גרסה " + u.latest + " זמינה";
+    setHidden(chip, false);
+    setText(txt, "גרסה " + u.latest + " זמינה");
   } else {
-    chip.hidden = true;
+    setHidden(chip, true);
   }
   const v = $("#s_ver");
-  if(v) v.value = u.current || "";
+  if(v && v.value !== (u.current || "")) v.value = u.current || "";
   const h = $("#updhint");
   if(h){
-    h.textContent = u.busy ? "מוריד את הגרסה החדשה… " + Math.round(u.percent || 0) + "%"
+    setText(h, u.busy ? "מוריד את הגרסה החדשה… " + Math.round(u.percent || 0) + "%"
       : u.available ? "גרסה " + u.latest + " זמינה להורדה."
       : u.error ? "בדיקת עדכון נכשלה: " + u.error
-      : u.checked ? "זו הגרסה העדכנית ביותר." : "בודק עדכונים…";
+      : u.checked ? "זו הגרסה העדכנית ביותר." : "בודק עדכונים…");
   }
 }
 async function startUpdate(){
@@ -1366,8 +1384,7 @@ let lastClip = "", clipUrl = "";
 async function checkClip(){
   if(document.hidden) return;
   try{
-    let txt = "";
-    try { txt = await navigator.clipboard.readText(); } catch(e){ txt = (await api("/api/clipboard")).text || ""; }
+    const txt = (await api("/api/clipboard")).text || "";
     if(!txt || txt === lastClip) return;
     lastClip = txt;
     const u = urlsOf(txt)[0];
@@ -1382,7 +1399,7 @@ async function checkClip(){
 $("#clipadd").onclick = () => { appendUrls([clipUrl]); $("#clipbar").classList.remove("on"); box.focus(); };
 $("#clipno").onclick = () => $("#clipbar").classList.remove("on");
 window.addEventListener("focus", checkClip);
-setInterval(checkClip, 2500);
+setInterval(checkClip, 3000);
 
 $("#credit").onclick = e => {
   e.preventDefault();

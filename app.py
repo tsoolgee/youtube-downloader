@@ -40,7 +40,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.3"
+APP_VERSION = "0.0.4"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 UA = "YT-DLP-Studio/" + APP_VERSION
 NOTICE_API = "https://api.github.com/repos/%s/contents/notice.txt" % UPDATE_REPO
@@ -178,10 +178,27 @@ SSL_LAX.verify_mode = ssl.CERT_NONE
 
 
 def apply_ssl_policy(insecure):
-    """מתעלם מתעודות שגויות - נדרש מאחורי סינון שמחליף תעודות (נטפרי וכדומה)."""
+    """מתעלם מתעודות שגויות - נדרש מאחורי סינון שמחליף תעודות (נטפרי וכדומה).
+    מוחל על urllib, על requests/urllib3 ועל curl_cffi שבהם yt-dlp משתמש."""
     try:
         ssl._create_default_https_context = (
             ssl._create_unverified_context if insecure else ssl.create_default_context)
+    except Exception:
+        pass
+    if not insecure:
+        for var in ("PYTHONHTTPSVERIFY", "CURL_SSL_NO_VERIFY"):
+            os.environ.pop(var, None)
+        return
+    os.environ["PYTHONHTTPSVERIFY"] = "0"
+    os.environ["CURL_SSL_NO_VERIFY"] = "1"
+    try:                                   # שקט מאזהרות של urllib3 על חיבור לא מאומת
+        import urllib3
+        urllib3.disable_warnings()
+    except Exception:
+        pass
+    try:
+        import warnings
+        warnings.filterwarnings("ignore", message=".*[Vv]erif.*")
     except Exception:
         pass
 
@@ -194,8 +211,18 @@ def http_get(url, timeout=20, headers=None):
 
 
 ERRORS_HE = (
-    ("418", "נחסם על ידי נטפרי"),
+    # תעודות אבטחה נבדקות ראשונות: סינון שמחליף תעודה נראה כמו חסימה אבל אינו כזה
+    ("certificate verify failed", "שגיאת תעודת אבטחה של הסינון — נסה שוב"),
+    ("certificate_verify_failed", "שגיאת תעודת אבטחה של הסינון — נסה שוב"),
+    ("ssl: ", "שגיאת תעודת אבטחה של הסינון — נסה שוב"),
+    ("sslerror", "שגיאת תעודת אבטחה של הסינון — נסה שוב"),
+    ("ssl certificate", "שגיאת תעודת אבטחה של הסינון — נסה שוב"),
+    ("self-signed", "תעודת אבטחה של הסינון — נסה שוב"),
+    ("self signed", "תעודת אבטחה של הסינון — נסה שוב"),
+    ("unable to get local issuer", "תעודת אבטחה של הסינון — נסה שוב"),
     ("netfree", "נחסם על ידי נטפרי"),
+    ("http error 418", "נחסם על ידי נטפרי"),
+    ("error 418", "נחסם על ידי נטפרי"),
     ("blocked by", "הקישור חסום על ידי הסינון"),
     ("private video", "הסרטון פרטי"),
     ("members-only", "הסרטון פתוח למנויי הערוץ בלבד"),
@@ -209,8 +236,7 @@ ERRORS_HE = (
     ("http error 403", "יוטיוב דחה את ההורדה (403) — נסה שוב או הפעל עוגיות מדפדפן"),
     ("http error 404", "הקישור לא נמצא (404)"),
     ("http error 429", "יותר מדי בקשות ליוטיוב — המתן קצת ונסה שוב"),
-    ("certificate", "שגיאת תעודת אבטחה — הפעל 'התעלם משגיאות תעודה' בהגדרות"),
-    ("ssl", "שגיאת תעודת אבטחה — הפעל 'התעלם משגיאות תעודה' בהגדרות"),
+    ("certificate", "שגיאת תעודת אבטחה של הסינון — נסה שוב"),
     ("timed out", "פג זמן החיבור"),
     ("timeout", "פג זמן החיבור"),
     ("no space left", "אין מקום פנוי בדיסק"),
@@ -837,6 +863,7 @@ class Manager:
         }
         if self.settings.get("insecureSSL", True):
             y["nocheckcertificate"] = True
+            y["legacy_server_connect"] = True      # סינונים ישנים עם TLS legacy
         if has_ff:
             y["ffmpeg_location"] = self.ffmpeg
         rl = str(self.settings.get("ratelimit") or "").strip().lower()
