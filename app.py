@@ -40,7 +40,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.8"
+APP_VERSION = "0.0.9"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -447,8 +447,8 @@ class Updater:
     def __init__(self):
         self.lock = threading.Lock()
         self.state = {"current": APP_VERSION, "latest": "", "available": False,
-                      "url": "", "notes": "", "busy": False, "percent": 0.0,
-                      "error": "", "checked": False, "frozen": FROZEN}
+                      "url": "", "notes": "", "changelog": [], "busy": False,
+                      "percent": 0.0, "error": "", "checked": False, "frozen": FROZEN}
 
     def snapshot(self):
         with self.lock:
@@ -461,21 +461,36 @@ class Updater:
         if delay:
             time.sleep(delay)
         try:
-            req = urllib.request.Request(
-                "https://api.github.com/repos/%s/releases/latest" % UPDATE_REPO,
-                headers={"User-Agent": UA, "Accept": "application/vnd.github+json"})
-            with urllib.request.urlopen(req, timeout=20) as r:
+            with http_get("https://api.github.com/repos/%s/releases?per_page=30" % UPDATE_REPO,
+                          timeout=20,
+                          headers={"Accept": "application/vnd.github+json"}) as r:
                 data = json.loads(r.read().decode("utf-8", "replace"))
-            tag = str(data.get("tag_name") or data.get("name") or "")
+            rels = [x for x in (data or [])
+                    if isinstance(x, dict) and not x.get("draft") and not x.get("prerelease")]
+            rels.sort(key=lambda x: _vtuple(x.get("tag_name")), reverse=True)
+            if not rels:
+                raise RuntimeError("לא נמצאו שחרורים")
+
+            newest = rels[0]
+            tag = str(newest.get("tag_name") or newest.get("name") or "")
             asset = ""
-            for a in data.get("assets") or []:
+            for a in newest.get("assets") or []:
                 if str(a.get("name", "")).lower().endswith(".exe"):
                     asset = a.get("browser_download_url") or ""
                     break
-            newer = bool(asset) and _vtuple(tag) > _vtuple(APP_VERSION)
+
+            # כל מה שהשתנה מהגרסה שרצה כאן ועד החדשה ביותר
+            mine = _vtuple(APP_VERSION)
+            changelog = [{"version": str(x.get("tag_name") or "").lstrip("vV"),
+                          "date": str(x.get("published_at") or "")[:10],
+                          "notes": (x.get("body") or "").strip()[:1500]}
+                         for x in rels if _vtuple(x.get("tag_name")) > mine][:20]
+
+            newer = bool(asset) and _vtuple(tag) > mine
             with self.lock:
                 self.state.update({"latest": tag.lstrip("vV"), "url": asset,
-                                   "notes": (data.get("body") or "").strip()[:500],
+                                   "notes": (newest.get("body") or "").strip()[:1500],
+                                   "changelog": changelog,
                                    "available": newer, "checked": True, "error": ""})
         except Exception as e:
             with self.lock:

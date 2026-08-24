@@ -413,6 +413,15 @@ body:has(.scrim.open) #clipbar{display:none !important}
 #bridgefail p{margin:0 0 16px;font-size:13px;line-height:1.8;color:var(--muted)}
 #bridgefail .tech{font-size:11px;color:var(--faint);direction:ltr;word-break:break-word}
 #bridgefail .wait{font-size:11.5px;color:var(--accent2);margin-bottom:14px}
+
+.rel{padding:12px 14px;border:1px solid var(--line);border-radius:13px;background:var(--card2)}
+.rel .top{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.rel .v{font-size:12px;font-weight:800;color:#fff;padding:3px 10px;border-radius:99px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2))}
+.rel .d{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.rel .now{font-size:11px;color:var(--ok);font-weight:700}
+.rel .txt{font-size:12.5px;line-height:1.85;color:var(--muted);white-space:pre-wrap;
+  word-break:break-word;unicode-bidi:plaintext}
 </style>
 </head>
 <body>
@@ -630,6 +639,26 @@ body:has(.scrim.open) #clipbar{display:none !important}
       <button class="btn sm danger" id="clearall">נקה את כל התור</button>
       <div class="grow"></div>
       <button class="btn primary" data-close>סגור</button>
+    </div>
+  </div>
+</div>
+
+<!-- מה השתנה מאז הגרסה שרצה כאן -->
+<div class="scrim" id="umodal">
+  <div class="modal" style="width:min(680px,100%)">
+    <div class="mhead">
+      <div style="flex:1;min-width:0">
+        <h2 id="utitle">גרסה חדשה זמינה</h2>
+        <p id="usub"></p>
+      </div>
+      <button class="iconbtn" data-close>✕</button>
+    </div>
+    <div class="mbody" id="ubody"></div>
+    <div class="mfoot">
+      <span class="hint" id="ustatus" style="margin:0;padding:0"></span>
+      <div class="grow"></div>
+      <button class="btn" data-close>אחר כך</button>
+      <button class="btn primary" id="udo">עדכן והפעל מחדש</button>
     </div>
   </div>
 </div>
@@ -1353,6 +1382,16 @@ function paintUpdate(u){
   } else {
     setHidden(chip, true);
   }
+  const st = $("#ustatus"), go = $("#udo");
+  if(st && go){
+    if(u.busy){
+      setText(st, "מוריד את הגרסה החדשה… " + Math.round(u.percent || 0) + "%");
+      go.disabled = true;
+    } else {
+      setText(st, u.error ? "שגיאה: " + u.error : "");
+      go.disabled = false;
+    }
+  }
   const v = $("#s_ver");
   if(v && v.value !== (u.current || "")) v.value = u.current || "";
   const h = $("#updhint");
@@ -1369,13 +1408,39 @@ async function startUpdate(){
   else toast("מוריד את הגרסה החדשה — התוכנה תיסגר ותיפתח מחדש לבד", "ok");
   poll();
 }
-$("#updchip").onclick = () => {
+/* הערות שחרור של גיטהאב מגיעות ב-Markdown; מנקים לקריאה רגילה */
+function cleanNotes(t){
+  return String(t || "").split(/\r?\n/)
+    .filter(l => !/^\s*\*\*Full Changelog\*\*/i.test(l))
+    .map(l => l.replace(/^#{1,6}\s*/, "")
+               .replace(/^[*-]\s+/, "• ")
+               .replace(/\s+by\s+@[\w-]+\s+in\s+\S+/g, "")
+               .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+               .replace(/\*\*/g, ""))
+    .join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+function openUpdate(){
   const u = (LAST && LAST.update) || {};
-  if(u.busy) return;
-  const first = (u.notes || "").split(String.fromCharCode(10))[0].trim();
-  toast("גרסה " + u.latest + " זמינה" + (first ? " · " + first : ""), "",
-        {label: "עדכן והפעל מחדש", fn: startUpdate});
-};
+  if(!u.latest) return;
+  const list = (u.changelog && u.changelog.length)
+    ? u.changelog
+    : [{version: u.latest, date: "", notes: u.notes || ""}];
+  $("#utitle").textContent = "גרסה " + u.latest + " זמינה";
+  $("#usub").textContent = "מותקנת אצלך " + u.current +
+    (list.length > 1 ? " · " + list.length + " גרסאות מאז" : "");
+  $("#ubody").innerHTML = list.map(r => `<div class="rel">
+      <div class="top"><span class="v">${esc(r.version)}</span>
+        ${r.date ? `<span class="d">${esc(r.date)}</span>` : ""}</div>
+      <div class="txt">${esc(cleanNotes(r.notes)) || "אין פירוט לגרסה הזו"}</div>
+    </div>`).join("") +
+    `<div class="rel" style="opacity:.6"><div class="top">
+       <span class="v" style="background:var(--input);color:var(--muted)">${esc(u.current)}</span>
+       <span class="now">הגרסה שמותקנת אצלך</span></div></div>`;
+  $("#umodal").classList.add("open");
+  paintUpdate(u);
+}
+$("#updchip").onclick = openUpdate;
+$("#udo").onclick = startUpdate;
 $("#openlog").onclick = () => api("/api/log/open", {}).catch(()=>{});
 $("#checkupd").onclick = async () => {
   $("#updhint").textContent = "בודק עדכונים…";

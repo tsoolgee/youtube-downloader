@@ -29,6 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0          # צריך היסטוריה מלאה כדי להרכיב פירוט שינויים
 
       - uses: actions/setup-python@v5
         with:
@@ -85,6 +86,21 @@ jobs:
           path: dist/YT-DLP-Studio.exe
           retention-days: 14
 
+      # הפירוט הזה הוא מה שהתוכנה מציגה בחלון "מה השתנה" לפני עדכון
+      - name: Compose release notes
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        shell: bash
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          prev=$(git tag --sort=-v:refname | grep -v "^${tag}$" | head -1 || true)
+          range=$([ -n "$prev" ] && echo "$prev..$tag" || echo "$tag")
+          {
+            git log --no-merges --pretty=format:'• %s' "$range"
+            printf '\n\n'
+            printf 'מנוע yt-dlp מצורף: %s\n' "$YTDLP"
+          } > notes.md
+          cat notes.md
+
       # שם הנכס חייב להישאר קבוע - עליו נשען הקישור
       # releases/latest/download/YT-DLP-Studio.exe וגם המעדכן שבתוך התוכנה
       - name: Upload to release
@@ -94,7 +110,7 @@ jobs:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: הורדה ניידת מיוטיוב צול גאה ${{ env.VER }}
           files: "dist/YT-DLP-Studio.exe"
-          generate_release_notes: true
+          body_path: notes.md
 
       # גיטהאב חותך עברית משמות קבצים, אבל מקבל אותה בתווית -
       # התווית היא מה שמוצג בעמוד השחרור
