@@ -396,6 +396,18 @@ body:has(.scrim.open) #clipbar{display:none !important}
   text-align:center;background:var(--card);box-shadow:var(--shadow)}
 #drop .in div:first-child{font-size:44px;margin-bottom:10px}
 #drop .in b{font-size:15px;font-weight:650}
+
+#bridgefail{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);padding:24px;
+  animation:fade .2s}
+#bridgefail .card{max-width:520px;text-align:center;padding:34px 30px;border-radius:20px;
+  background:var(--bg2);border:1px solid color-mix(in srgb,var(--err) 45%,var(--line));
+  box-shadow:0 30px 80px rgba(0,0,0,.6)}
+#bridgefail .big{font-size:44px;margin-bottom:12px}
+#bridgefail h2{margin:0 0 10px;font-size:17px;font-weight:680}
+#bridgefail p{margin:0 0 16px;font-size:13px;line-height:1.8;color:var(--muted)}
+#bridgefail .tech{font-size:11px;color:var(--faint);direction:ltr;word-break:break-word}
+#bridgefail .wait{font-size:11.5px;color:var(--accent2);margin-bottom:14px}
 </style>
 </head>
 <body>
@@ -628,22 +640,65 @@ const $$ = s => [...document.querySelectorAll(s)];
 /* הגשר לפייתון - pywebview, בלי HTTP ובלי פורט מקומי */
 const bridgeReady = () => !!(window.pywebview && window.pywebview.api &&
                              typeof window.pywebview.api.rpc === "function");
-const bridge = new Promise((res, rej) => {
-  if(bridgeReady()) return res();
-  window.addEventListener("pywebviewready", () => { if(bridgeReady()) res(); }, {once:true});
-  let tries = 0;
-  const t = setInterval(() => {
-    if(bridgeReady()){ clearInterval(t); res(); }
-    else if(++tries > 200){ clearInterval(t); rej(new Error("הליבה של התוכנה לא נטענה")); }
-  }, 100);
-});
+/* מחכה שהגשר יופיע. לא מוותר לתמיד - כל קריאה מנסה שוב, כך שאיחור
+   בטעינה של WebView2 מתקן את עצמו בלי שהמשתמש יעשה כלום. */
+function bridgeWait(ms){
+  return new Promise((res, rej) => {
+    if(bridgeReady()) return res();
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if(bridgeReady()){ clearInterval(iv); res(); }
+      else if(Date.now() - t0 > ms){ clearInterval(iv); rej(new Error("הליבה של התוכנה לא נטענה")); }
+    }, 120);
+  });
+}
+let bridgeFailed = false;
+function bridgeUp(){
+  if(!bridgeFailed) return;
+  bridgeFailed = false;
+  const el = $("#bridgefail");
+  if(el) el.remove();
+  toast("החיבור לליבת התוכנה חזר", "ok");
+}
+function bridgeDown(msg){
+  if(bridgeFailed) return;
+  bridgeFailed = true;
+  const el = document.createElement("div");
+  el.id = "bridgefail";
+  el.innerHTML = `<div class="card">
+      <div class="big">⚠</div>
+      <h2>לא הצלחתי להתחבר לליבת התוכנה</h2>
+      <p>הממשק עלה אבל אין קשר לחלק שמבצע את ההורדות, ולכן הכפתורים לא מגיבים.<br>
+         זו בדרך כלל תקלה חד-פעמית בטעינה.</p>
+      <p class="tech"></p>
+      <p class="wait">ממשיך לנסות להתחבר ברקע…</p>
+      <button class="btn primary" id="bridgereload">טען מחדש</button>
+    </div>`;
+  el.querySelector(".tech").textContent = msg || "";
+  document.body.appendChild(el);
+  el.querySelector("#bridgereload").onclick = () => location.reload();
+}
+
 async function api(path, body){
-  await bridge;
+  if(!bridgeReady()){
+    try{
+      await bridgeWait(25000);
+    }catch(err){
+      bridgeDown(err && err.message);
+      throw err;
+    }
+  }
+  bridgeUp();                                   // הופיע אחרי איחור - חוזרים לעבודה
   const r = await window.pywebview.api.rpc(path, body === undefined ? null : body);
   if(r && r.__error) throw new Error(r.__error);
   return r;
 }
+const toastSeen = new Map();
 function toast(msg, kind="", action){
+  const now = Date.now();
+  const last = toastSeen.get(msg) || 0;
+  if(!action && now - last < 15000) return;     // אותה הודעה לא חוזרת כל שנייה
+  toastSeen.set(msg, now);
   const el = document.createElement("div");
   el.className = "toast " + kind;
   el.innerHTML = `<span>${kind==="er"?"⚠":kind==="ok"?"✓":"ℹ"}</span><span class="tx">${msg}</span>`;
@@ -1223,8 +1278,7 @@ async function poll(){
     render(st);
     pollFails = 0;
   }catch(e){
-    if(++pollFails === 5)
-      toast("אין תקשורת עם הליבה של התוכנה: " + (e && e.message ? e.message : e), "er");
+    if(++pollFails >= 3) bridgeDown(e && e.message ? e.message : String(e));
   }
   busy = false;
 }

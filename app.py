@@ -40,7 +40,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.2"
+APP_VERSION = "0.0.3"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 UA = "YT-DLP-Studio/" + APP_VERSION
 NOTICE_API = "https://api.github.com/repos/%s/contents/notice.txt" % UPDATE_REPO
@@ -1001,11 +1001,13 @@ UPD = Updater()
 NOTE = Notice()
 
 
-class Api:
-    """כל התקשורת בין ה-HTML לפייתון עוברת דרך rpc() - בלי HTTP ובלי פורטים."""
+WIN = None          # חלון pywebview. חייב להישאר מחוץ ל-Api: אובייקט שאינו מתודה
+                    # על מחלקת ה-js_api גורם ל-pywebview לחשוף אפס פונקציות ל-JS.
 
-    def __init__(self):
-        self.window = None
+
+class Api:
+    """כל התקשורת בין ה-HTML לפייתון עוברת דרך rpc() - בלי HTTP ובלי פורטים.
+    אסור להוסיף כאן תכונות שאינן מתודות."""
 
     def rpc(self, path, body=None):
         try:
@@ -1064,7 +1066,7 @@ class Api:
         if path == "/api/folder":
             folder = ""
             try:
-                picked = self.window.create_file_dialog(
+                picked = WIN.create_file_dialog(
                     webview.FOLDER_DIALOG, directory=SETTINGS.get("folder") or HOME)
                 if picked:
                     folder = picked[0] if isinstance(picked, (list, tuple)) else str(picked)
@@ -1154,26 +1156,87 @@ def close_splash(*_args, **_kw):
         pass
 
 
-def main():
+def ui_file():
+    """כותב עותק של הממשק לתיקיית המשתמש ומחזיר נתיב.
+    טעינה מ-file:// אמינה הרבה יותר מהזרקת HTML ישירות - שם הגשר של pywebview
+    לא נוצר בחלק מגרסאות WebView2."""
+    src = res_path("ui.html")
+    dst = os.path.join(APP_DIR, "ui.html")
     try:
-        with open(res_path("ui.html"), "r", encoding="utf-8") as f:
+        os.makedirs(APP_DIR, exist_ok=True)
+        with open(src, "r", encoding="utf-8") as f:
             html = f.read()
+        try:
+            with open(dst, "r", encoding="utf-8") as f:
+                same = f.read() == html
+        except Exception:
+            same = False
+        if not same:
+            with open(dst, "w", encoding="utf-8") as f:
+                f.write(html)
+        return dst
     except Exception as e:
-        print("לא נמצא ui.html:", e)
+        log("ui: כתיבה לתיקיית המשתמש נכשלה (%s), נופל חזרה למקור" % e)
+        return src if os.path.isfile(src) else ""
+
+
+def bridge_selftest(win, url):
+    """ממתין שהגשר ייווצר, מתעד כמה זמן זה לקח, ומרענן רק אם הוא לא הגיע בכלל."""
+    probe = "!!(window.pywebview && window.pywebview.api && window.pywebview.api.rpc)"
+
+    def wait(limit):
+        t0 = time.time()
+        last = None
+        while time.time() - t0 < limit:
+            time.sleep(1.0)
+            try:
+                if win.evaluate_js(probe):
+                    return time.time() - t0
+                last = win.evaluate_js(
+                    "[typeof window.pywebview, window.pywebview && window.pywebview.api ? "
+                    "Object.keys(window.pywebview.api).join('|') : 'no-api', "
+                    "location.href.slice(0,80), document.readyState].join(' ; ')")
+            except Exception as e:
+                last = "evaluate_js EXC: %s" % e
+        if last:
+            log("גשר: מצב אחרון -> %s" % last)
+        return None
+
+    took = wait(35.0)
+    if took is not None:
+        log("גשר: מוכן אחרי %.1f שניות" % took)
+        return
+    log("גשר: לא נוצר תוך 35 שניות, טוען את הממשק מחדש")
+    try:
+        win.load_url("file:///" + url.replace("\\", "/"))
+    except Exception as e:
+        log("גשר: טעינה מחדש נכשלה (%s)" % e)
+        return
+    took = wait(35.0)
+    log("גשר: אחרי טעינה מחדש -> %s" %
+        ("מוכן אחרי %.1f שניות" % took if took is not None else "עדיין לא זמין"))
+
+
+def main():
+    path = ui_file()
+    if not path:
+        log("שגיאה: ui.html לא נמצא")
         return
 
     log("=" * 60)
     log("הפעלה: גרסה %s | frozen=%s | yt-dlp %s" % (APP_VERSION, FROZEN, yt_dlp.version.__version__))
-    log("נתיבים: exe=%s | הורדות=%s | ffmpeg=%r" % (
-        (sys.executable if FROZEN else __file__), SETTINGS.get("folder"), MGR.ffmpeg or "בהכנה"))
+    log("נתיבים: exe=%s | הורדות=%s | ffmpeg=%r | ממשק=%s" % (
+        (sys.executable if FROZEN else __file__), SETTINGS.get("folder"),
+        MGR.ffmpeg or "בהכנה", path))
 
+    global WIN
     api = Api()
     win = webview.create_window(
-        APP_NAME, html=html, js_api=api,
+        APP_NAME, "file:///" + path.replace("\\", "/"), js_api=api,
         width=1220, height=900, min_size=(900, 620),
         background_color="#06080f", text_select=False,
     )
-    api.window = win
+    WIN = win
     for event in ("shown", "loaded"):               # מה שיקרה קודם סוגר את מסך הטעינה
         try:
             getattr(win.events, event).__iadd__(close_splash)
@@ -1182,6 +1245,7 @@ def main():
     threading.Timer(20.0, close_splash).start()    # רשת ביטחון אם האירוע לא נורה
     UPD.check_async(delay=4.0)
     NOTE.check_async(delay=2.0)
+    threading.Thread(target=bridge_selftest, args=(win, path), daemon=True).start()
     try:
         webview.start(debug=os.environ.get("YTS_DEBUG") == "1")
         log("סגירה: החלון נסגר כרגיל")
