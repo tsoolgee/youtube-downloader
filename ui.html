@@ -1079,7 +1079,7 @@ $$("#tabs button").forEach(b => b.onclick = () => {
 });
 const BADGE = {
   pending:["ממתין",""], downloading:["מוריד","dl"], processing:["מעבד","pp"],
-  done:["הושלם","ok"], error:["שגיאה","er"], canceled:["בוטל",""]
+  done:["הושלם","ok"], error:["שגיאה","er"], canceled:["בוטל",""], blocked:["נחסם","er"]
 };
 let LAST = {items:[]}, nodes = new Map(), prevStatus = new Map();
 
@@ -1104,6 +1104,9 @@ function actionsFor(it){
     if(it.filepath){ a.push(["▶ פתיחה","פתח את הקובץ","open","wide"]); a.push(["📂","הצג בתיקייה","reveal"]); }
     return a.concat([["↻","הורד שוב","retry"],["✕","הסר","rm"]]);
   }
+  if(it.blocked)
+    return [["🎵 הורדת אודיו","להוריד את השיר כקובץ MP3","toaudio","wide"],
+            ["✕","הסר","rm"]];
   return [["↻","נסה שוב","retry"],["✎","שנה איכות","edit"],["✕","הסר","rm"]];
 }
 const setText = (el, v) => { if(el && el.textContent !== v) el.textContent = v; };
@@ -1171,6 +1174,11 @@ function paint(el, it){
 }
 async function act(a, id){
   if(a === "edit"){ const it = LAST.items.find(x=>x.id===id); if(it) openEdit(it); return; }
+  if(a === "toaudio"){
+    try { await api("/api/toaudio", {id}); toast("מוריד כ-MP3", "ok"); }
+    catch(e){ toast("הפעולה נכשלה", "er"); }
+    poll(); return;
+  }
   const map = {cancel:"/api/cancel", retry:"/api/retry", rm:"/api/remove", open:"/api/open", reveal:"/api/reveal"};
   try { await api(map[a], {id}); } catch(e){ toast("הפעולה נכשלה", "er"); }
   poll();

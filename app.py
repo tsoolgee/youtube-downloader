@@ -41,7 +41,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.13"
+APP_VERSION = "0.0.14"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -707,6 +707,32 @@ def clean_work_dir(max_age_hours=24):
         log("נוקו %d שאריות מתיקיית העבודה" % removed)
 
 
+def clean_intermediates(it):
+    """מוחק את קבצי הביניים (.f137.mp4, .f140.m4a, תמונות) שירדו אבל לא מוזגו."""
+    stems = set()
+    for p in list(getattr(it, "parts", set())) + [getattr(it, "tmpfile", ""),
+                                                   getattr(it, "dlname", "")]:
+        if not p:
+            continue
+        base = re.sub(r"\.f\d+\.[^.]+$", "", p)
+        stems.add(os.path.splitext(base)[0])
+    for base in stems:
+        folder, name = os.path.dirname(base), os.path.basename(base)
+        if not (folder and name and os.path.isdir(folder)):
+            continue
+        for f in os.listdir(folder):
+            full = os.path.join(folder, f)
+            if not os.path.isfile(full) or not f.startswith(name):
+                continue
+            if re.search(r"\.f\d+\.", f) or f.endswith(
+                    (".part", ".ytdl", ".webp", ".jpg", ".png", ".temp.mp4", ".temp.mkv")):
+                try:
+                    os.remove(full)
+                except Exception:
+                    pass
+    it.parts = set()
+
+
 def clean_partials(it):
     """מוחק קבצי ביניים (.part/.ytdl) שנשארו אחרי ביטול הורדה."""
     cand = set()
@@ -795,6 +821,8 @@ class Item:
         self.added = time.time()
         self.finished = 0
         self.cancel = False
+        self.blocked = False         # נחסם על ידי וידיאוף - להציג כפתור אודיו
+        self.parts = set()           # קבצי הביניים שירדו, לניקוי בכשל
         self.ydl_log = YdlLog()
 
     def label(self):
@@ -814,6 +842,7 @@ class Item:
             "percent": round(self.percent, 1), "speed": self.speed, "eta": self.eta,
             "downloaded": self.downloaded, "total": self.total, "stage": self.stage,
             "error": self.error, "errorRaw": self.error_raw, "warning": self.warning,
+            "blocked": self.blocked,
             "filepath": self.filepath, "label": self.label(),
             "opts": self.opts, "pi": self.playlist_index, "pc": self.playlist_count,
         }
@@ -974,6 +1003,28 @@ class Manager:
             elif it.status == "pending":
                 it.status = "canceled"
                 it.stage = "בוטל"
+            return True
+
+    def to_audio(self, iid):
+        """הצלה מחסימת וידיאוף: הורדה מחדש כ-MP3 (אודיו לא נחסם)."""
+        with self.lock:
+            it = self._find(iid)
+            if not it or it.status not in ("error", "canceled", "done"):
+                return False
+            it.opts = self.norm_opts({**it.opts, "kind": "audio", "acodec": "mp3"})
+            it.status = "pending"
+            it.cancel = False
+            it.blocked = False
+            it.error = ""
+            it.error_raw = ""
+            it.warning = ""
+            it.percent = 0.0
+            it.stage = ""
+            it.speed = 0
+            it.eta = 0
+            it.downloaded = 0
+            it.total = 0
+            it.parts = set()
             return True
 
     def retry(self, iid):
@@ -1243,6 +1294,7 @@ class Manager:
             it.tmpfile = d["tmpfilename"]
         if d.get("filename"):
             it.dlname = d["filename"]
+            it.parts.add(d["filename"])
         if it.cancel:
             raise Canceled()
         st = d.get("status")
@@ -1316,7 +1368,20 @@ class Manager:
                 log("      פלט yt-dlp:\n      " + it.ydl_log.tail())
                 log("      אבחון ffmpeg ישירות:\n" + diagnose_ffmpeg(folder, self.ffmpeg))
 
-                # ניסיון שני: שם קובץ קצר ואנגלי, ושינוי שם בפייתון אחרי המיזוג
+                if it.opts.get("kind") == "video":
+                    # קובצי הווידאו ירדו אבל ffmpeg נחסם מלקרוא אותם למיזוג -
+                    # וידיאוף חוסם וידאו לפי תוכן. אין דרך למזג. מנקים ומציעים אודיו.
+                    clean_intermediates(it)
+                    it.blocked = True
+                    it.status = "error"
+                    it.stage = "נחסם"
+                    it.error = "וידיאוף חוסם הורדת וידאו"
+                    it.error_raw = str(e)[:400]
+                    it.speed = 0
+                    log("הורדה: וידיאוף חוסם וידאו %s" % it.url)
+                    return
+
+                # אודיו: ניסיון שני עם שם קובץ קצר ואנגלי
                 log("מנסה שוב עם שם קובץ בטוח")
                 it.stage = "מנסה שוב עם שם קובץ בטוח"
                 it.percent = 0.0
@@ -1358,11 +1423,13 @@ class Manager:
             it.stage = "בוטל"
             it.speed = 0
             clean_partials(it)
+            clean_intermediates(it)
         except Exception as e:
             if it.cancel:
                 it.status = "canceled"
                 it.stage = "בוטל"
                 clean_partials(it)
+                clean_intermediates(it)
             else:
                 msg = re.sub(r"\x1b\[[0-9;]*m", "", str(e)).replace("ERROR: ", "").strip()
                 it.status = "error"
@@ -1510,6 +1577,8 @@ class Api:
             return {"ok": MGR.cancel(d.get("id"))}
         if path == "/api/retry":
             return {"ok": MGR.retry(d.get("id"))}
+        if path == "/api/toaudio":
+            return {"ok": MGR.to_audio(d.get("id"))}
         if path == "/api/remove":
             return {"ok": MGR.remove(d.get("id"))}
         if path == "/api/clear":
