@@ -41,7 +41,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.11"
+APP_VERSION = "0.0.12"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -80,6 +80,15 @@ def _writable(d):
         return False
 
 
+def _has_console():
+    """גרסת ה-EXE הרגילה נבנית ללא קונסולה; גרסת האבחון עם."""
+    try:
+        return bool(sys.stdout) and sys.stdout.fileno() >= 0
+    except Exception:
+        return False
+
+
+HAS_CONSOLE = _has_console()
 _log_lock = threading.Lock()
 
 
@@ -99,8 +108,11 @@ def log(msg):
                 f.write(line + "\n")
     except Exception:
         pass
-    if not FROZEN:
-        print(line, flush=True)
+    if HAS_CONSOLE:
+        try:
+            print(line, flush=True)
+        except Exception:
+            pass
 
 
 def default_download_dir():
@@ -617,6 +629,59 @@ class Updater:
         os._exit(0)
 
 
+# תווי "רוחב מלא" ש-yt-dlp שם במקום תווים אסורים בחלונות. הם חוקיים בשם קובץ,
+# אבל חלק מהמערכות לא מצליחות להעביר אותם ל-ffmpeg ואז המיזוג נכשל.
+FULLWIDTH = {"\uff5c": "-", "\uff1a": " -", "\uff1f": "", "\uff0a": "",
+             "\uff02": "'", "\uff1c": "(", "\uff1e": ")", "\uff0f": "-", "\uffe5": "-"}
+
+
+def safe_title(title, fallback="video"):
+    """שם קובץ נקי: בלי תווי רוחב-מלא ובלי תווים אסורים."""
+    t = str(title or "")
+    for bad, good in FULLWIDTH.items():
+        t = t.replace(bad, good)
+    t = re.sub(r'[\\/:*?"<>|]', "-", t)
+    t = re.sub(r"[\x00-\x1f]", "", t)
+    t = re.sub(r"\s+", " ", t).strip(" .")
+    return t[:120] or fallback
+
+
+def unique_path(path):
+    """מוסיף מספר אם השם כבר תפוס."""
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    for i in range(2, 100):
+        cand = "%s (%d)%s" % (stem, i, ext)
+        if not os.path.exists(cand):
+            return cand
+    return path
+
+
+def diagnose_ffmpeg(folder, ffmpeg_dir):
+    """מריץ את ffmpeg שלנו על קבצי הביניים שנשארו, ומחזיר מה הוא באמת אומר."""
+    exe = os.path.join(ffmpeg_dir or "", _exe("ffmpeg"))
+    if not (os.path.isdir(folder) and os.path.isfile(exe)):
+        return "אין קבצי ביניים לבדיקה"
+    parts = sorted((f for f in os.listdir(folder) if re.search(r"\.f\d+\.", f)),
+                   key=lambda f: os.path.getsize(os.path.join(folder, f)), reverse=True)[:2]
+    if not parts:
+        return "לא נמצאו קבצי ביניים"
+    out = []
+    for f in parts:
+        p = os.path.join(folder, f)
+        out.append("  %s | קיים=%s | %d בתים"
+                   % (f[:60], os.path.isfile(p), os.path.getsize(p) if os.path.isfile(p) else 0))
+        try:
+            r = subprocess.run([exe, "-hide_banner", "-i", p, "-f", "null", "-"],
+                               capture_output=True, timeout=60, creationflags=NO_WINDOW)
+            tail = (r.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+            out.append("    ffmpeg יצא עם %d: %s" % (r.returncode, (tail[-1] if tail else "")[:130]))
+        except Exception as e:
+            out.append("    הרצת ffmpeg נכשלה: %s" % e)
+    return "\n".join(out)
+
+
 def clean_partials(it):
     """מוחק קבצי ביניים (.part/.ytdl) שנשארו אחרי ביטול הורדה."""
     cand = set()
@@ -643,18 +708,30 @@ class YdlLog:
     def __init__(self):
         self.lines = collections.deque(maxlen=30)
 
+    @staticmethod
+    def _echo(msg):
+        if HAS_CONSOLE:
+            try:
+                print("    " + str(msg), flush=True)
+            except Exception:
+                pass
+
     def debug(self, msg):
         if not str(msg).startswith("[debug] "):
             self.lines.append(str(msg))
+            self._echo(msg)
 
     def info(self, msg):
         self.lines.append(str(msg))
+        self._echo(msg)
 
     def warning(self, msg):
         self.lines.append("אזהרה: " + str(msg))
+        self._echo("אזהרה: " + str(msg))
 
     def error(self, msg):
         self.lines.append("שגיאה: " + str(msg))
+        self._echo("שגיאה: " + str(msg))
 
     def tail(self, count=12):
         return "\n      ".join(list(self.lines)[-count:])
@@ -733,6 +810,9 @@ class Manager:
         if not self.ffmpeg:
             self.ff_busy = True
             threading.Thread(target=self._prepare_ffmpeg, daemon=True).start()
+        else:
+            # ffmpeg שכבר קיים עלול להיות פגום מהרצה קודמת - מוודאים שהוא באמת רץ
+            threading.Thread(target=self._verify_existing_ffmpeg, daemon=True).start()
         threading.Thread(target=self._dispatch, daemon=True).start()
 
     STUCK_AFTER = 8 * 60          # שמונה דקות בלי שום התקדמות בעיבוד
@@ -776,6 +856,19 @@ class Manager:
             log("ffmpeg תקוע נעצר")
         except Exception as e:
             log("עצירת ffmpeg נכשלה: %s" % e)
+
+    def _verify_existing_ffmpeg(self):
+        """אם ה-ffmpeg שנמצא לא באמת רץ (קובץ פגום, אנטי-וירוס) - פורסים מחדש."""
+        if ffmpeg_works(self.ffmpeg):
+            return
+        log("ffmpeg: הקיים לא עובר בדיקה — פורס מחדש")
+        try:
+            os.remove(os.path.join(BIN_DIR, _exe("ffmpeg")))
+        except Exception:
+            pass
+        self.ffmpeg = ""
+        self.ff_busy = True
+        self._prepare_ffmpeg()
 
     def _prepare_ffmpeg(self):
         def progress(p):
@@ -1021,10 +1114,12 @@ class Manager:
         q = str(o.get("quality", "best"))
         return "best" if q == "best" else q + "p"
 
-    def _build(self, it, extras=True):
+    def _build(self, it, extras=True, safe=False):
         o = dict(it.opts)
         if not extras:                     # ניסיון שני: בלי מה שנעשה אחרי ההורדה
             o["thumb"] = o["metadata"] = o["subs"] = o["sponsorblock"] = False
+        if safe:                           # שם קצר ואנגלי בלבד, לעקוף כשל תלוי-שם
+            o["template"] = "yts_%(id)s.%(ext)s"
         has_ff = bool(self.ffmpeg)
         folder = o.get("folder") or self.settings["folder"]
         os.makedirs(folder, exist_ok=True)
@@ -1184,13 +1279,28 @@ class Manager:
             except Exception as e:
                 if it.cancel or not self._is_pp_error(e):
                     raise
-                # ההורדה עצמה הצליחה; רק העיבוד נפל - שומרים את הקובץ בלי התוספות
-                log("עיבוד נכשל (%s) — מנסה שוב בלי תמונה/מטא-דאטה/כתוביות" % str(e)[:160])
+                folder = it.opts.get("folder") or self.settings["folder"]
+                log("עיבוד נכשל (%s)" % str(e)[:160])
                 log("      פלט yt-dlp:\n      " + it.ydl_log.tail())
-                it.stage = "מנסה שוב בלי תוספות"
+                log("      אבחון ffmpeg ישירות:\n" + diagnose_ffmpeg(folder, self.ffmpeg))
+
+                # ניסיון שני: שם קובץ קצר ואנגלי, ושינוי שם בפייתון אחרי המיזוג
+                log("מנסה שוב עם שם קובץ בטוח")
+                it.stage = "מנסה שוב עם שם קובץ בטוח"
                 it.percent = 0.0
-                info = self._attempt(it, extras=False)
-                it.warning = "נשמר בלי תמונה ומטא-דאטה — שילובם נכשל"
+                try:
+                    info = self._attempt(it, extras=True, safe=True)
+                    it.warning = "השם המקורי גרם לתקלה בעיבוד — נשמר בשם מותאם"
+                except Canceled:
+                    raise
+                except Exception as e2:
+                    if it.cancel or not self._is_pp_error(e2):
+                        raise
+                    log("גם עם שם בטוח נכשל (%s) — מנסה בלי תוספות" % str(e2)[:160])
+                    it.stage = "מנסה שוב בלי תוספות"
+                    info = self._attempt(it, extras=False, safe=True)
+                    it.warning = "נשמר בשם מותאם ובלי תמונה ומטא-דאטה"
+                it.safe_named = True
             if it.cancel:
                 raise Canceled()
             if info:
@@ -1199,6 +1309,9 @@ class Manager:
                     rd = info.get("requested_downloads") or []
                     if rd and rd[0].get("filepath"):
                         it.filepath = rd[0]["filepath"]
+            # שינוי השם אחרון, אחרי שהנתיב הסופי נקבע - אחרת הוא היה נדרס
+            if getattr(it, "safe_named", False):
+                self._rename_to_title(it, info)
             it.status = "done"
             it.percent = 100.0
             it.stage = "הושלם"
@@ -1231,9 +1344,25 @@ class Manager:
             with self.lock:
                 self.active = max(0, self.active - 1)
 
-    def _attempt(self, it, extras=True):
-        with yt_dlp.YoutubeDL(self._build(it, extras)) as ydl:
+    def _attempt(self, it, extras=True, safe=False):
+        with yt_dlp.YoutubeDL(self._build(it, extras, safe)) as ydl:
             return ydl.extract_info(it.url, download=True)
+
+    def _rename_to_title(self, it, info):
+        """אחרי הורדה בשם בטוח - מחזירים לשם לפי כותרת הסרטון, בפייתון (בלי ffmpeg)."""
+        src = it.filepath
+        if not src or not os.path.isfile(src):
+            return
+        title = (info or {}).get("title") or it.title
+        folder = os.path.dirname(src)
+        ext = os.path.splitext(src)[1]
+        dst = unique_path(os.path.join(folder, safe_title(title, os.path.basename(src)) + ext))
+        try:
+            os.replace(src, dst)
+            it.filepath = dst
+            log("שונה שם: %s -> %s" % (os.path.basename(src), os.path.basename(dst)))
+        except Exception as e:
+            log("שינוי שם נכשל (%s) — הקובץ נשאר בשם %s" % (e, os.path.basename(src)))
 
 
 # ----------------------------------------------------------------------------- api bridge
@@ -1467,7 +1596,8 @@ def main():
         return
 
     log("=" * 60)
-    log("הפעלה: גרסה %s | frozen=%s | yt-dlp %s" % (APP_VERSION, FROZEN, yt_dlp.version.__version__))
+    log("הפעלה: גרסה %s | frozen=%s | קונסולה=%s | yt-dlp %s"
+        % (APP_VERSION, FROZEN, HAS_CONSOLE, yt_dlp.version.__version__))
     log("נתיבים: exe=%s | הורדות=%s | ffmpeg=%r | ממשק=%s" % (
         (sys.executable if FROZEN else __file__), SETTINGS.get("folder"),
         MGR.ffmpeg or "בהכנה", path))

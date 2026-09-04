@@ -181,10 +181,11 @@ def make_splash():
     return png
 
 
-def build(with_ffmpeg, icon, splash):
+def build(with_ffmpeg, icon, splash, console=False):
     sep = ";" if os.name == "nt" else ":"
+    name = NAME + (" Console" if console else "")
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
-           "--onefile", "--windowed", "--name", NAME,
+           "--onefile", "--console" if console else "--windowed", "--name", name,
            "--add-data", "ui.html" + sep + ".",
            "--collect-all", "yt_dlp",
            "--collect-all", "webview",
@@ -196,7 +197,7 @@ def build(with_ffmpeg, icon, splash):
         cmd += ["--add-data", "vendor" + sep + "vendor"]
     if icon:
         cmd += ["--icon", icon]
-    if splash:
+    if splash and not console:          # מסך הטעינה מיותר כשיש קונסולה
         cmd += ["--splash", splash]
     cmd.append("app.py")
     log("מריץ PyInstaller…")
@@ -204,8 +205,9 @@ def build(with_ffmpeg, icon, splash):
     if r.returncode != 0:
         sys.exit(r.returncode)
     ext = ".exe" if os.name == "nt" else ""
-    built = os.path.join(ROOT, "dist", NAME + ext)
-    out = os.path.join(ROOT, "dist", DIST_NAME + ext)
+    built = os.path.join(ROOT, "dist", name + ext)
+    out = os.path.join(ROOT, "dist",
+                       (DIST_NAME + " - אבחון" if console else DIST_NAME) + ext)
     if os.path.isfile(built) and os.path.abspath(built) != os.path.abspath(out):
         if os.path.isfile(out):
             os.remove(out)
@@ -219,7 +221,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--ffmpeg", default="", help="תיקייה עם ffmpeg.exe/ffprobe.exe")
     ap.add_argument("--no-ffmpeg", action="store_true", help="לבנות בלי FFmpeg מצורף")
+    ap.add_argument("--console", action="store_true",
+                    help="גרסת אבחון עם חלון קונסולה שמציג את הפלט החי")
     a = ap.parse_args()
     print("=== בניית %s ===" % NAME)
     ok = False if a.no_ffmpeg else prepare_vendor(a.ffmpeg)
-    build(ok, make_icon(), make_splash())
+    build(ok, make_icon(), make_splash(), console=a.console)
