@@ -41,7 +41,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.12"
+APP_VERSION = "0.0.13"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -53,6 +53,7 @@ FROZEN = getattr(sys, "frozen", False)
 
 APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or HOME, "YT-DLP Studio")
 BIN_DIR = os.path.join(APP_DIR, "bin")
+WORK_DIR = os.path.join(APP_DIR, "work")   # הורדה ומיזוג כאן, לא בתיקיית היעד
 CFG_PATH = os.path.join(APP_DIR, "settings.json")
 LOG_PATH = os.path.join(APP_DIR, "log.txt")
 LEGACY_CFG = os.path.join(HOME, ".ytdlp_studio.json")
@@ -263,7 +264,10 @@ ERRORS_HE = (
     ("timed out", "פג זמן החיבור"),
     ("timeout", "פג זמן החיבור"),
     ("no space left", "אין מקום פנוי בדיסק"),
-    ("permission denied", "אין הרשאת כתיבה לתיקיית היעד"),
+    ("permission denied", "הגישה לקובץ נחסמה — ייתכן שאנטי-וירוס חוסם את התיקייה"),
+    ("access is denied", "הגישה לקובץ נחסמה — ייתכן שאנטי-וירוס חוסם את התיקייה"),
+    ("error opening input files", "ffmpeg לא הצליח לפתוח את קבצי הביניים — "
+                                  "ייתכן שאנטי-וירוס חוסם אותם"),
     ("unable to connect", "אין חיבור לאינטרנט"),
     ("name or service not known", "אין חיבור לאינטרנט"),
     ("getaddrinfo failed", "אין חיבור לאינטרנט"),
@@ -680,6 +684,27 @@ def diagnose_ffmpeg(folder, ffmpeg_dir):
         except Exception as e:
             out.append("    הרצת ffmpeg נכשלה: %s" % e)
     return "\n".join(out)
+
+
+def clean_work_dir(max_age_hours=24):
+    """שאריות מהורדות שבוטלו או קרסו לא נשארות לתפוס מקום."""
+    if not os.path.isdir(WORK_DIR):
+        return
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    for name in os.listdir(WORK_DIR):
+        p = os.path.join(WORK_DIR, name)
+        try:
+            if os.path.isfile(p) and os.path.getmtime(p) < cutoff:
+                os.remove(p)
+                removed += 1
+            elif os.path.isdir(p) and os.path.getmtime(p) < cutoff:
+                shutil.rmtree(p, ignore_errors=True)
+                removed += 1
+        except Exception:
+            pass
+    if removed:
+        log("נוקו %d שאריות מתיקיית העבודה" % removed)
 
 
 def clean_partials(it):
@@ -1130,10 +1155,17 @@ class Manager:
         if o.get("playlist"):
             tmpl = os.path.join("%(playlist_title,channel,uploader|Playlist)s",
                                 "%(playlist_index|0)03d - " + tmpl)
-        outtmpl = os.path.join(folder, tmpl)
+        # הקבצים הזמניים והמיזוג נעשים בתיקייה פנימית; רק המוגמר עובר ליעד.
+        # אנטי-וירוס נועל קבצים טריים בתיקיית ההורדות ואז ffmpeg לא מצליח לפתוח אותם.
+        try:
+            os.makedirs(WORK_DIR, exist_ok=True)
+            work = WORK_DIR
+        except Exception:
+            work = folder
 
         y = {
-            "outtmpl": outtmpl,
+            "outtmpl": tmpl,
+            "paths": {"home": folder, "temp": work},
             "logger": it.ydl_log,
             "quiet": True, "no_warnings": True, "noprogress": True,
             "ignoreerrors": False, "retries": 10, "fragment_retries": 10,
@@ -1273,7 +1305,7 @@ class Manager:
     def _run(self, it):
         try:
             try:
-                info = self._attempt(it, extras=True)
+                info = self._attempt(it, extras=True, tries=3)
             except Canceled:
                 raise
             except Exception as e:
@@ -1344,9 +1376,23 @@ class Manager:
             with self.lock:
                 self.active = max(0, self.active - 1)
 
-    def _attempt(self, it, extras=True, safe=False):
-        with yt_dlp.YoutubeDL(self._build(it, extras, safe)) as ydl:
-            return ydl.extract_info(it.url, download=True)
+    def _attempt(self, it, extras=True, safe=False, tries=1):
+        """נעילה של אנטי-וירוס היא לרוב זמנית - שווה לנסות שוב אחרי כמה שניות."""
+        last = None
+        for i in range(max(1, tries)):
+            if it.cancel:
+                raise Canceled()
+            try:
+                with yt_dlp.YoutubeDL(self._build(it, extras, safe)) as ydl:
+                    return ydl.extract_info(it.url, download=True)
+            except Exception as e:
+                last = e
+                if i + 1 >= tries or not self._is_pp_error(e) or it.cancel:
+                    raise
+                log("עיבוד נכשל, מנסה שוב בעוד 4 שניות (%d/%d)" % (i + 2, tries))
+                it.stage = "מנסה שוב"
+                time.sleep(4)
+        raise last
 
     def _rename_to_title(self, it, info):
         """אחרי הורדה בשם בטוח - מחזירים לשם לפי כותרת הסרטון, בפייתון (בלי ffmpeg)."""
@@ -1618,6 +1664,7 @@ def main():
     threading.Timer(20.0, close_splash).start()    # רשת ביטחון אם האירוע לא נורה
     UPD.check_async(delay=4.0)
     NOTE.check_async(delay=2.0)
+    threading.Thread(target=clean_work_dir, daemon=True).start()
     threading.Thread(target=bridge_selftest, args=(win, path), daemon=True).start()
     try:
         webview.start(debug=os.environ.get("YTS_DEBUG") == "1")
