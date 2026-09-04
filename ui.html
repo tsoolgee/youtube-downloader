@@ -1319,6 +1319,8 @@ async function poll(){
       applySettingsToUI(st.settings);
     }
     setText($("#ver"), "גרסה " + st.app + " · yt-dlp " + st.version);
+    if(st.ffmpegBusy) setHidden($("#prep"), false);
+    else if(!st.ffmpegError && !st.folderWarning) setHidden($("#prep"), true);
     paintPrep(st);
     paintUpdate(st.update || {});
     paintNotice(st.notice || {}, (st.settings || {}).noticeSeen || "");
@@ -1326,6 +1328,15 @@ async function poll(){
     setText($("#fftxt"), st.ffmpeg ? "FFmpeg פעיל" : (st.ffmpegBusy ? "מכין FFmpeg…" : "FFmpeg חסר"));
     setTitle($("#ffchip"), st.ffmpeg ? st.ffmpegPath
              : "ללא FFmpeg לא ניתן למזג איכויות גבוהות או להמיר אודיו");
+    const fw = $("#prep");
+    if(!st.ffmpegBusy && (st.ffmpegError || st.folderWarning)){
+      const msg = st.ffmpegError || st.folderWarning;
+      setHidden(fw, false);
+      fw.className = "notice " + (st.ffmpegError ? "error" : "warn");
+      setText(fw.querySelector(".ntext b"), st.ffmpegError ? "בעיה ב-FFmpeg" : "שים לב לתיקיית היעד");
+      setText($("#preptext"), msg);
+      setHidden(fw.querySelector(".prepbar"), true);
+    }
     setText($("#ffhint"), st.ffmpeg ? "נמצא: " + st.ffmpegPath
       : (st.ffmpegBusy ? "פורס את FFmpeg המצורף לתוכנה — רק בהפעלה הראשונה…"
                        : "FFmpeg לא נמצא — האיכויות מוגבלות והמרת אודיו מושבתת."));
@@ -1342,8 +1353,11 @@ poll();
 /* ---------------- first-run preparation ---------------- */
 function paintPrep(st){
   const el = $("#prep");
-  if(!st.ffmpegBusy){ setHidden(el, true); return; }
+  if(!st.ffmpegBusy){ return; }        /* הסתרה/הצגה נקבעות ב-poll לפי אזהרות */
   setHidden(el, false);
+  el.className = "notice warn";
+  setHidden(el.querySelector(".prepbar"), false);
+  setText(el.querySelector(".ntext b"), "מכינים את התוכנה להפעלה הראשונה");
   const p = st.ffmpegPercent || 0;
   setWidth($("#prepfill"), p);
   setText($("#preptext"),

@@ -41,7 +41,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.10"
+APP_VERSION = "0.0.11"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -331,6 +331,39 @@ def locate_ffmpeg(custom=""):
             return d
     w = shutil.which("ffmpeg")
     return os.path.dirname(w) if w else ""
+
+
+NO_WINDOW = 0x08000000 if IS_WIN else 0
+
+
+def ffmpeg_works(folder):
+    """מריץ ffmpeg -version. קובץ פגום או מבודד על ידי אנטי-וירוס ייתפס כאן,
+    במקום להיתקע באמצע מיזוג."""
+    exe = os.path.join(folder or "", _exe("ffmpeg"))
+    if not os.path.isfile(exe):
+        return False
+    try:
+        r = subprocess.run([exe, "-hide_banner", "-version"], capture_output=True,
+                           timeout=25, creationflags=NO_WINDOW)
+        return r.returncode == 0 and b"ffmpeg version" in (r.stdout or b"").lower()
+    except Exception as e:
+        log("ffmpeg: הבדיקה נכשלה (%s)" % e)
+        return False
+
+
+def cloud_folder_warning(folder):
+    """תיקיות מסונכרנות ורשת נועלות קבצים תוך כדי כתיבה ומקפיאות את המיזוג."""
+    p = (folder or "").replace("/", "\\")
+    low = p.lower()
+    if p.startswith("\\\\"):
+        return "תיקיית היעד נמצאת ברשת. מיזוג הקובץ עלול להיתקע — עדיף לשמור לכונן מקומי."
+    for name, label in (("onedrive", "OneDrive"), ("dropbox", "Dropbox"),
+                        ("google drive", "Google Drive"), ("googledrive", "Google Drive"),
+                        ("\\box\\", "Box"), ("icloud", "iCloud")):
+        if name in low:
+            return ("תיקיית היעד מסונכרנת ל-%s. הסנכרון נועל קבצים תוך כדי כתיבה "
+                    "ועלול להקפיא את המיזוג — עדיף תיקייה מקומית." % label)
+    return ""
 
 
 def unpack_ffmpeg(on_progress=None):
@@ -648,6 +681,7 @@ class Item:
         self.downloaded = 0
         self.total = 0
         self.stage = ""
+        self.stage_since = time.time()
         self.error = ""
         self.error_raw = ""
         self.warning = ""
@@ -693,11 +727,55 @@ class Manager:
         self.ffmpeg = locate_ffmpeg(settings.get("ffmpeg", ""))
         self.ff_busy = False
         self.ff_percent = 0.0
+        self.ff_error = ""
         self.probe_sem = threading.Semaphore(4)
+        threading.Thread(target=self._watchdog, daemon=True).start()
         if not self.ffmpeg:
             self.ff_busy = True
             threading.Thread(target=self._prepare_ffmpeg, daemon=True).start()
         threading.Thread(target=self._dispatch, daemon=True).start()
+
+    STUCK_AFTER = 8 * 60          # שמונה דקות בלי שום התקדמות בעיבוד
+
+    def _watchdog(self):
+        """עיבוד שלא זז - מדווח ועוצר, במקום להשאיר את המשתמש מול מסך תקוע."""
+        while True:
+            time.sleep(20)
+            try:
+                with self.lock:
+                    stuck = [x for x in self.items
+                             if x.status == "processing" and not x.cancel
+                             and time.time() - x.stage_since > self.STUCK_AFTER]
+                    others = [x for x in self.items
+                              if x.status in ("downloading", "processing") and x not in stuck]
+                for it in stuck:
+                    log("עיבוד תקוע %.0f דקות בשלב '%s' — עוצר: %s"
+                        % ((time.time() - it.stage_since) / 60, it.stage, it.url))
+                    log("      פלט yt-dlp:\n      " + it.ydl_log.tail())
+                    it.cancel = True
+                    it.error = ("שלב %s נתקע ונעצר. נסה איכות נמוכה יותר או תיקיית יעד מקומית."
+                                % (it.stage or "העיבוד"))
+                    it.error_raw = "watchdog: stuck in %s" % it.stage
+                    if not others:
+                        self._kill_ffmpeg()
+            except Exception:
+                pass
+
+    def _kill_ffmpeg(self):
+        """עוצר את ffmpeg שלנו בלבד, ורק כשאין הורדה אחרת שעלולה להיפגע."""
+        exe = os.path.join(self.ffmpeg or "", _exe("ffmpeg"))
+        if not IS_WIN or not os.path.isfile(exe):
+            return
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" | "
+                 "Where-Object { $_.ExecutablePath -eq '%s' } | "
+                 "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" % exe.replace("'", "''")],
+                capture_output=True, timeout=30, creationflags=NO_WINDOW)
+            log("ffmpeg תקוע נעצר")
+        except Exception as e:
+            log("עצירת ffmpeg נכשלה: %s" % e)
 
     def _prepare_ffmpeg(self):
         def progress(p):
@@ -706,6 +784,18 @@ class Manager:
         log("ffmpeg: לא נמצא, פורס את המצורף")
         try:
             self.ffmpeg = unpack_ffmpeg(progress) or locate_ffmpeg()
+            if self.ffmpeg and not ffmpeg_works(self.ffmpeg):
+                log("ffmpeg: הקובץ שנפרס לא תקין — פורס מחדש")
+                try:
+                    os.remove(os.path.join(BIN_DIR, _exe("ffmpeg")))
+                except Exception:
+                    pass
+                self.ffmpeg = unpack_ffmpeg(progress) or locate_ffmpeg()
+                if self.ffmpeg and not ffmpeg_works(self.ffmpeg):
+                    log("ffmpeg: עדיין לא תקין — ממשיך בלעדיו")
+                    self.ff_error = ("FFmpeg לא מצליח לרוץ במחשב הזה. "
+                                     "ייתכן שאנטי-וירוס חוסם אותו.")
+                    self.ffmpeg = ""
         except Exception as e:
             log("ffmpeg: פריסה נכשלה: %s" % e)
         finally:
@@ -829,6 +919,8 @@ class Manager:
             "ffmpegPath": self.ffmpeg,
             "ffmpegBusy": self.ff_busy,
             "ffmpegPercent": round(self.ff_percent, 1),
+            "ffmpegError": self.ff_error,
+            "folderWarning": cloud_folder_warning(self.settings.get("folder")),
             "active": self.active,
             "version": yt_dlp.version.__version__,
             "app": APP_VERSION,
@@ -1027,6 +1119,7 @@ class Manager:
         if it.cancel:
             raise Canceled()
         st = d.get("status")
+        it.stage_since = time.time()
         if st == "downloading":
             it.status = "downloading"
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
@@ -1058,6 +1151,7 @@ class Manager:
     def _pp_hook(self, it, d):
         if it.cancel:
             raise Canceled()
+        it.stage_since = time.time()
         names = {"FFmpegExtractAudio": "ממיר אודיו", "EmbedThumbnail": "משבץ תמונה",
                  "FFmpegMetadata": "כותב מטא-דאטה", "Merger": "ממזג וידאו + אודיו",
                  "FFmpegEmbedSubtitle": "משבץ כתוביות", "ModifyChapters": "מסיר חסויות",
