@@ -8,6 +8,7 @@ YT-DLP Studio - תוכנת שולחן עבודה להורדה מיוטיוב.
 בנייה ל-EXE בודד:  python build.py
 """
 
+import collections
 import ctypes
 import hashlib
 import json
@@ -40,7 +41,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.9"
+APP_VERSION = "0.0.10"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -603,6 +604,29 @@ def clean_partials(it):
             pass
 
 
+class YdlLog:
+    """שומר את השורות האחרונות ש-yt-dlp הדפיס, לאבחון כשלים."""
+
+    def __init__(self):
+        self.lines = collections.deque(maxlen=30)
+
+    def debug(self, msg):
+        if not str(msg).startswith("[debug] "):
+            self.lines.append(str(msg))
+
+    def info(self, msg):
+        self.lines.append(str(msg))
+
+    def warning(self, msg):
+        self.lines.append("אזהרה: " + str(msg))
+
+    def error(self, msg):
+        self.lines.append("שגיאה: " + str(msg))
+
+    def tail(self, count=12):
+        return "\n      ".join(list(self.lines)[-count:])
+
+
 class Canceled(Exception):
     pass
 
@@ -626,6 +650,7 @@ class Item:
         self.stage = ""
         self.error = ""
         self.error_raw = ""
+        self.warning = ""
         self.filepath = ""
         self.tmpfile = ""
         self.dlname = ""
@@ -634,6 +659,7 @@ class Item:
         self.added = time.time()
         self.finished = 0
         self.cancel = False
+        self.ydl_log = YdlLog()
 
     def label(self):
         o = self.opts
@@ -651,7 +677,7 @@ class Item:
             "uploader": self.uploader, "duration": self.duration, "thumbnail": self.thumbnail,
             "percent": round(self.percent, 1), "speed": self.speed, "eta": self.eta,
             "downloaded": self.downloaded, "total": self.total, "stage": self.stage,
-            "error": self.error, "errorRaw": self.error_raw,
+            "error": self.error, "errorRaw": self.error_raw, "warning": self.warning,
             "filepath": self.filepath, "label": self.label(),
             "opts": self.opts, "pi": self.playlist_index, "pc": self.playlist_count,
         }
@@ -751,6 +777,7 @@ class Manager:
             it.cancel = False
             it.error = ""
             it.error_raw = ""
+            it.warning = ""
             it.percent = 0.0
             it.stage = ""
             it.speed = 0
@@ -902,8 +929,10 @@ class Manager:
         q = str(o.get("quality", "best"))
         return "best" if q == "best" else q + "p"
 
-    def _build(self, it):
-        o = it.opts
+    def _build(self, it, extras=True):
+        o = dict(it.opts)
+        if not extras:                     # ניסיון שני: בלי מה שנעשה אחרי ההורדה
+            o["thumb"] = o["metadata"] = o["subs"] = o["sponsorblock"] = False
         has_ff = bool(self.ffmpeg)
         folder = o.get("folder") or self.settings["folder"]
         os.makedirs(folder, exist_ok=True)
@@ -918,6 +947,7 @@ class Manager:
 
         y = {
             "outtmpl": outtmpl,
+            "logger": it.ydl_log,
             "quiet": True, "no_warnings": True, "noprogress": True,
             "ignoreerrors": False, "retries": 10, "fragment_retries": 10,
             "concurrent_fragment_downloads": 4,
@@ -1042,11 +1072,31 @@ class Manager:
             if fp:
                 it.filepath = fp
 
+    @staticmethod
+    def _is_pp_error(e):
+        """כשל בשלב שאחרי ההורדה - מיזוג, המרה, תמונה, כתוביות."""
+        if isinstance(e, getattr(yt_dlp.utils, "PostProcessingError", ())):
+            return True
+        t = str(e).lower()
+        return ("postprocessing" in t or "error opening input files" in t
+                or "ffmpeg exited with code" in t)
+
     def _run(self, it):
         try:
-            y = self._build(it)
-            with yt_dlp.YoutubeDL(y) as ydl:
-                info = ydl.extract_info(it.url, download=True)
+            try:
+                info = self._attempt(it, extras=True)
+            except Canceled:
+                raise
+            except Exception as e:
+                if it.cancel or not self._is_pp_error(e):
+                    raise
+                # ההורדה עצמה הצליחה; רק העיבוד נפל - שומרים את הקובץ בלי התוספות
+                log("עיבוד נכשל (%s) — מנסה שוב בלי תמונה/מטא-דאטה/כתוביות" % str(e)[:160])
+                log("      פלט yt-dlp:\n      " + it.ydl_log.tail())
+                it.stage = "מנסה שוב בלי תוספות"
+                it.percent = 0.0
+                info = self._attempt(it, extras=False)
+                it.warning = "נשמר בלי תמונה ומטא-דאטה — שילובם נכשל"
             if it.cancel:
                 raise Canceled()
             if info:
@@ -1080,11 +1130,16 @@ class Manager:
                 it.error_raw = msg[:400]
                 it.error = friendly_error(msg)[:400] or "שגיאה לא ידועה"
                 log("הורדה: כשל %s :: %s" % (it.url, msg[:300]))
+                log("      פלט yt-dlp:\n      " + it.ydl_log.tail())
                 it.stage = "שגיאה"
             it.speed = 0
         finally:
             with self.lock:
                 self.active = max(0, self.active - 1)
+
+    def _attempt(self, it, extras=True):
+        with yt_dlp.YoutubeDL(self._build(it, extras)) as ydl:
+            return ydl.extract_info(it.url, download=True)
 
 
 # ----------------------------------------------------------------------------- api bridge

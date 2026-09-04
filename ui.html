@@ -291,6 +291,7 @@ input[type=text],input[type=number]{cursor:text;font-weight:500}
 .meta .tag{background:var(--input);border:1px solid var(--line2);padding:2px 9px;border-radius:99px;color:var(--muted);
   font-weight:600;font-size:11px}
 .meta .err{color:var(--err);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.meta .warn{color:var(--warn);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .bar{height:6px;border-radius:99px;background:var(--input);overflow:hidden;position:relative;box-shadow:var(--glow)}
 .fill{height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--accent),var(--accent2));
   transition:width .4s var(--ease);position:relative}
@@ -1131,6 +1132,8 @@ function paint(el, it){
   if(it.pc > 1) meta.push(`<span class="tag">פלייליסט ${it.pi||0}/${it.pc}</span>`);
   if(it.status === "error" && it.error)
     meta.push(`<span class="err" title="${esc(it.errorRaw || it.error)}">${esc(it.error)}</span>`);
+  if(it.status === "done" && it.warning)
+    meta.push(`<span class="warn" title="הקובץ תקין, רק שלב העיבוד הנוסף נכשל">${esc(it.warning)}</span>`);
   const m = el.querySelector(".meta"), html = meta.join("");
   if(m.dataset.h !== html){ m.dataset.h = html; m.innerHTML = html; }
 
