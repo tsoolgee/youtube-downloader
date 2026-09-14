@@ -41,7 +41,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.14"
+APP_VERSION = "0.0.15"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -1248,7 +1248,9 @@ class Manager:
 
         pps = []
         if o.get("kind") == "audio":
-            y["format"] = "ba/b"
+            # רק זרם אודיו - לעולם לא וידאו, גם לא זמני. בלי fallback ל-b (וידאו),
+            # כדי שבמחשב שחוסם וידאו ההורדה תיגע רק בקבצי שמע.
+            y["format"] = "ba/bestaudio"
             if has_ff:
                 codec = str(o.get("acodec", "mp3"))
                 pp = {"key": "FFmpegExtractAudio", "preferredcodec": codec}
@@ -1370,15 +1372,15 @@ class Manager:
 
                 if it.opts.get("kind") == "video":
                     # קובצי הווידאו ירדו אבל ffmpeg נחסם מלקרוא אותם למיזוג -
-                    # וידיאוף חוסם וידאו לפי תוכן. אין דרך למזג. מנקים ומציעים אודיו.
+                    # משהו במחשב חוסם קובצי וידאו. אין דרך למזג. מנקים ומציעים אודיו.
                     clean_intermediates(it)
                     it.blocked = True
                     it.status = "error"
                     it.stage = "נחסם"
-                    it.error = "וידיאוף חוסם הורדת וידאו"
+                    it.error = "לא ניתן להוריד וידאו במחשב הזה — אפשר להוריד כאודיו"
                     it.error_raw = str(e)[:400]
                     it.speed = 0
-                    log("הורדה: וידיאוף חוסם וידאו %s" % it.url)
+                    log("הורדה: וידאו נחסם במחשב %s" % it.url)
                     return
 
                 # אודיו: ניסיון שני עם שם קובץ קצר ואנגלי

@@ -193,6 +193,13 @@ def build(with_ffmpeg, icon, splash, console=False):
            "--exclude-module", "matplotlib",
            "--exclude-module", "numpy",
            "--exclude-module", "PIL"]
+    # אנחנו על WebView2 (EdgeChromium) בלבד; מנועי ה-GUI האחרים של pywebview
+    # (Qt/GTK) נמשכים ע"י --collect-all ומנפחים את הקובץ בעשרות MB אם הם מותקנים.
+    for mod in ("PySide6", "PySide2", "PyQt5", "PyQt6", "qtpy", "gi", "gtk",
+                "torch", "cv2", "scipy", "sympy", "playwright", "IPython",
+                "webview.platforms.qt", "webview.platforms.gtk",
+                "webview.platforms.cocoa", "webview.platforms.android"):
+        cmd += ["--exclude-module", mod]
     if with_ffmpeg:
         cmd += ["--add-data", "vendor" + sep + "vendor"]
     if icon:
