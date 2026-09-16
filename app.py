@@ -41,7 +41,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.15"
+APP_VERSION = "0.0.16"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -143,6 +143,7 @@ DEFAULT_SETTINGS = {
     "concurrency": 2,
     "ratelimit": "",
     "cookies": "",             # ''|chrome|edge|firefox|brave|opera|vivaldi
+    "proxy": "",               # http://host:port | socks5://host:port | '' = ישיר
     "template": "%(title)s.%(ext)s",
     "perItem": False,          # איכות שונה לכל הורדה (כבוי כברירת מחדל)
     "theme": "dark",
@@ -228,9 +229,15 @@ def apply_ssl_policy(insecure):
 
 
 def http_get(url, timeout=20, headers=None):
-    """בקשת HTTP שלא נופלת על תעודה של סינון."""
+    """בקשת HTTP שלא נופלת על תעודה של סינון, ועוברת דרך הפרוקסי אם הוגדר."""
     req = urllib.request.Request(url, headers=dict({"User-Agent": UA}, **(headers or {})))
     ctx = SSL_LAX if SETTINGS.get("insecureSSL", True) else None
+    px = str(SETTINGS.get("proxy") or "").strip()
+    if px:
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": px, "https": px}),
+            urllib.request.HTTPSHandler(context=ctx))
+        return opener.open(req, timeout=timeout)
     return urllib.request.urlopen(req, timeout=timeout, context=ctx)
 
 
@@ -1174,6 +1181,9 @@ class Manager:
         cb = self.settings.get("cookies") or ""
         if cb:
             ydl_opts["cookiesfrombrowser"] = (cb,)
+        px = str(self.settings.get("proxy") or "").strip()
+        if px:
+            ydl_opts["proxy"] = px
 
     def _variant_tag(self, it):
         """שני פריטים של אותו קישור באותה תיקייה חייבים שמות שונים."""

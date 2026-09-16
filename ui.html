@@ -610,6 +610,10 @@ body:has(.scrim.open) #clipbar{display:none !important}
           <option value="vivaldi">Vivaldi</option></select></div>
       </div>
       <p class="hint">עוגיות נדרשות לסרטונים מוגבלי גיל או פרטיים. הדפדפן צריך להיות סגור בזמן ההורדה.</p>
+      <div class="srow"><label>פרוקסי</label>
+        <div class="field"><input type="text" id="s_proxy" dir="ltr" placeholder="ריק = חיבור ישיר"></div>
+      </div>
+      <p class="hint">כל ההורדות ובדיקות העדכון יעברו דרך הפרוקסי. לדוגמה <code dir="ltr">http://host:8080</code> או <code dir="ltr">socks5://host:1080</code> (אפשר עם שם משתמש: <code dir="ltr">http://user:pass@host:port</code>).</p>
       <div class="srow"><label>תבנית שם קובץ</label>
         <div class="field"><input type="text" id="s_tmpl" dir="ltr"></div>
       </div>
@@ -819,6 +823,7 @@ function applySettingsToUI(s){
   $("#s_conc").value = s.concurrency;
   $("#s_rate").value = s.ratelimit || "";
   $("#s_cookies").value = s.cookies || "";
+  $("#s_proxy").value = s.proxy || "";
   $("#s_tmpl").value = s.template || "";
   $("#s_ffmpeg").value = s.ffmpeg || "";
 }
@@ -1063,6 +1068,7 @@ $("#s_folder").addEventListener("change", e => pushSettings({folder: e.target.va
 $("#s_conc").addEventListener("change", e => pushSettings({concurrency: Math.max(1, Math.min(8, +e.target.value||2))}, true));
 $("#s_rate").addEventListener("change", e => pushSettings({ratelimit: e.target.value}, true));
 $("#s_cookies").addEventListener("change", e => pushSettings({cookies: e.target.value}, true));
+$("#s_proxy").addEventListener("change", e => pushSettings({proxy: e.target.value}, true));
 $("#s_tmpl").addEventListener("change", e => pushSettings({template: e.target.value}, true));
 $("#s_ffmpeg").addEventListener("change", e => pushSettings({ffmpeg: e.target.value}, true));
 $("#ffchip").onclick = () => $("#smodal").classList.add("open");
