@@ -253,7 +253,7 @@ input[type=text],input[type=number]{cursor:text;font-weight:500}
 
 .list{flex:1;overflow-y:auto;overflow-x:hidden;padding:2px 4px 16px;display:flex;flex-direction:column;gap:9px;
   scroll-behavior:smooth}
-.item{display:flex;gap:13px;padding:12px;border-radius:15px;background:var(--card);border:1px solid var(--line);
+.item{display:flex;flex:none;gap:13px;padding:12px;border-radius:15px;background:var(--card);border:1px solid var(--line);
   box-shadow:var(--glow);animation:pop .32s var(--ease);position:relative;overflow:hidden;transition:.2s var(--ease)}
 .item:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line));transform:translateY(-1px);
   box-shadow:0 10px 26px rgba(0,0,0,.22),var(--glow)}
