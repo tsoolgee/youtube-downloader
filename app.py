@@ -51,7 +51,7 @@ except Exception:
     _SAFE_NAME_ACTIONS = None
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.20"
+APP_VERSION = "0.0.21"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -66,6 +66,14 @@ BIN_DIR = os.path.join(APP_DIR, "bin")
 CFG_PATH = os.path.join(APP_DIR, "settings.json")
 LOG_PATH = os.path.join(APP_DIR, "log.txt")
 LEGACY_CFG = os.path.join(HOME, ".ytdlp_studio.json")
+
+# תיקיית bin נכנסת ל-PATH כדי ש-yt-dlp ימצא שם את qjs (QuickJS) - מנוע JS זעיר
+# שמאפשר לפתור את אתגר יוטיוב ולהוריד בלי עוגיות. qjs נפרס לשם יחד עם ffmpeg.
+try:
+    if BIN_DIR not in os.environ.get("PATH", "").split(os.pathsep):
+        os.environ["PATH"] = BIN_DIR + os.pathsep + os.environ.get("PATH", "")
+except Exception:
+    pass
 
 
 def res_path(*parts):
@@ -355,6 +363,29 @@ def locate_ffmpeg(custom=""):
             return d
     w = shutil.which("ffmpeg")
     return os.path.dirname(w) if w else ""
+
+
+def ensure_qjs():
+    """פורס את qjs (QuickJS) ל-BIN_DIR אם ארוז ועדיין לא נפרס - תמיד, גם כש-ffmpeg
+    נמצא במערכת ולכן החבילה כולה לא נפרסת. qjs מאפשר הורדה בלי עוגיות."""
+    name = _exe("qjs")
+    out = os.path.join(BIN_DIR, name)
+    if os.path.isfile(out) and os.path.getsize(out) > 0:
+        return out
+    src = os.path.join(res_path("vendor"), name + ".xz")
+    if not os.path.isfile(src):
+        return ""
+    try:
+        os.makedirs(BIN_DIR, exist_ok=True)
+        tmp = out + ".partial"
+        with lzma.open(src, "rb") as fin, open(tmp, "wb") as fout:
+            shutil.copyfileobj(fin, fout, 1024 * 1024)
+        os.replace(tmp, out)
+        log("qjs: נפרס (%s)" % out)
+        return out
+    except Exception as e:
+        log("qjs: פריסה נכשלה (%s)" % e)
+        return ""
 
 
 def unpack_ffmpeg(on_progress=None):
@@ -693,6 +724,7 @@ class Manager:
         self.ff_busy = False
         self.ff_percent = 0.0
         self.probe_sem = threading.Semaphore(4)
+        threading.Thread(target=ensure_qjs, daemon=True).start()   # מנוע JS להורדה בלי עוגיות
         if not self.ffmpeg:
             self.ff_busy = True
             threading.Thread(target=self._prepare_ffmpeg, daemon=True).start()

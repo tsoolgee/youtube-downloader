@@ -68,6 +68,16 @@ jobs:
             ForEach-Object { Copy-Item $_.FullName bin }
           Get-ChildItem bin | Select-Object Name, Length
 
+      - name: Fetch QuickJS
+        shell: pwsh
+        run: |
+          # מנוע JS זעיר שמאפשר ל-yt-dlp לפתור את אתגר יוטיוב ולהוריד בלי עוגיות
+          $api = Invoke-RestMethod "https://api.github.com/repos/quickjs-ng/quickjs/releases/latest"
+          $asset = ($api.assets | Where-Object { $_.name -eq "qjs-windows-x86_64.exe" }).browser_download_url
+          New-Item -ItemType Directory -Force bin | Out-Null
+          Invoke-WebRequest $asset -OutFile bin/qjs.exe
+          "{0:N1} MB" -f ((Get-Item bin/qjs.exe).Length / 1MB)
+
       - name: Build single EXE
         run: python build.py
 

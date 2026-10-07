@@ -78,7 +78,27 @@ def prepare_vendor(hint=""):
         os.replace(tmp, dst)
         log("  %s: %.0f MB -> %.1f MB" % (n, os.path.getsize(s) / 1048576,
                                           os.path.getsize(dst) / 1048576))
+
     return os.path.isfile(os.path.join(VENDOR, NEEDED[0] + ".xz"))
+
+
+def prepare_qjs(hint=""):
+    """דוחס את QuickJS (qjs.exe) ל-vendor - מנוע JS זעיר שמאפשר ל-yt-dlp לפתור
+    את אתגר יוטיוב ולהוריד בלי עוגיות. מחפשים ב-bin/ או ליד ה-ffmpeg."""
+    os.makedirs(VENDOR, exist_ok=True)
+    qjs = "qjs.exe" if os.name == "nt" else "qjs"
+    dst = os.path.join(VENDOR, qjs + ".xz")
+    if os.path.isfile(dst):
+        return True
+    for cand in (os.path.join(ROOT, "bin", qjs), os.path.join(find_ffmpeg_dir(hint) or "", qjs)):
+        if cand and os.path.isfile(cand):
+            with open(cand, "rb") as fin, lzma.open(dst + ".partial", "wb", preset=6) as fout:
+                shutil.copyfileobj(fin, fout, 1024 * 1024)
+            os.replace(dst + ".partial", dst)
+            log("QuickJS: %s -> %.1f MB דחוס" % (qjs, os.path.getsize(dst) / 1048576))
+            return True
+    log("qjs לא נמצא (bin/qjs.exe) — בונה בלי מנוע JS")
+    return False
 
 
 def make_icon():
@@ -233,4 +253,5 @@ if __name__ == "__main__":
     a = ap.parse_args()
     print("=== בניית %s ===" % NAME)
     ok = False if a.no_ffmpeg else prepare_vendor(a.ffmpeg)
+    prepare_qjs(a.ffmpeg)          # מנוע JS זעיר להורדה בלי עוגיות
     build(ok, make_icon(), make_splash(), console=a.console)
