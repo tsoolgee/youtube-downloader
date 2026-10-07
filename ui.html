@@ -291,7 +291,6 @@ input[type=text],input[type=number]{cursor:text;font-weight:500}
 .meta .tag{background:var(--input);border:1px solid var(--line2);padding:2px 9px;border-radius:99px;color:var(--muted);
   font-weight:600;font-size:11px}
 .meta .err{color:var(--err);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.meta .warn{color:var(--warn);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .bar{height:6px;border-radius:99px;background:var(--input);overflow:hidden;position:relative;box-shadow:var(--glow)}
 .fill{height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--accent),var(--accent2));
   transition:width .4s var(--ease);position:relative}
@@ -1085,7 +1084,7 @@ $$("#tabs button").forEach(b => b.onclick = () => {
 });
 const BADGE = {
   pending:["ממתין",""], downloading:["מוריד","dl"], processing:["מעבד","pp"],
-  done:["הושלם","ok"], error:["שגיאה","er"], canceled:["בוטל",""], blocked:["נחסם","er"]
+  done:["הושלם","ok"], error:["שגיאה","er"], canceled:["בוטל",""]
 };
 let LAST = {items:[]}, nodes = new Map(), prevStatus = new Map();
 
@@ -1110,9 +1109,6 @@ function actionsFor(it){
     if(it.filepath){ a.push(["▶ פתיחה","פתח את הקובץ","open","wide"]); a.push(["📂","הצג בתיקייה","reveal"]); }
     return a.concat([["↻","הורד שוב","retry"],["✕","הסר","rm"]]);
   }
-  if(it.blocked)
-    return [["🎵 הורדת אודיו","להוריד את השיר כקובץ MP3","toaudio","wide"],
-            ["✕","הסר","rm"]];
   return [["↻","נסה שוב","retry"],["✎","שנה איכות","edit"],["✕","הסר","rm"]];
 }
 const setText = (el, v) => { if(el && el.textContent !== v) el.textContent = v; };
@@ -1141,8 +1137,6 @@ function paint(el, it){
   if(it.pc > 1) meta.push(`<span class="tag">פלייליסט ${it.pi||0}/${it.pc}</span>`);
   if(it.status === "error" && it.error)
     meta.push(`<span class="err" title="${esc(it.errorRaw || it.error)}">${esc(it.error)}</span>`);
-  if(it.status === "done" && it.warning)
-    meta.push(`<span class="warn" title="הקובץ תקין, רק שלב העיבוד הנוסף נכשל">${esc(it.warning)}</span>`);
   const m = el.querySelector(".meta"), html = meta.join("");
   if(m.dataset.h !== html){ m.dataset.h = html; m.innerHTML = html; }
 
@@ -1180,11 +1174,6 @@ function paint(el, it){
 }
 async function act(a, id){
   if(a === "edit"){ const it = LAST.items.find(x=>x.id===id); if(it) openEdit(it); return; }
-  if(a === "toaudio"){
-    try { await api("/api/toaudio", {id}); toast("מוריד כ-MP3", "ok"); }
-    catch(e){ toast("הפעולה נכשלה", "er"); }
-    poll(); return;
-  }
   const map = {cancel:"/api/cancel", retry:"/api/retry", rm:"/api/remove", open:"/api/open", reveal:"/api/reveal"};
   try { await api(map[a], {id}); } catch(e){ toast("הפעולה נכשלה", "er"); }
   poll();
@@ -1333,8 +1322,6 @@ async function poll(){
       applySettingsToUI(st.settings);
     }
     setText($("#ver"), "גרסה " + st.app + " · yt-dlp " + st.version);
-    if(st.ffmpegBusy) setHidden($("#prep"), false);
-    else if(!st.ffmpegError && !st.folderWarning) setHidden($("#prep"), true);
     paintPrep(st);
     paintUpdate(st.update || {});
     paintNotice(st.notice || {}, (st.settings || {}).noticeSeen || "");
@@ -1342,15 +1329,6 @@ async function poll(){
     setText($("#fftxt"), st.ffmpeg ? "FFmpeg פעיל" : (st.ffmpegBusy ? "מכין FFmpeg…" : "FFmpeg חסר"));
     setTitle($("#ffchip"), st.ffmpeg ? st.ffmpegPath
              : "ללא FFmpeg לא ניתן למזג איכויות גבוהות או להמיר אודיו");
-    const fw = $("#prep");
-    if(!st.ffmpegBusy && (st.ffmpegError || st.folderWarning)){
-      const msg = st.ffmpegError || st.folderWarning;
-      setHidden(fw, false);
-      fw.className = "notice " + (st.ffmpegError ? "error" : "warn");
-      setText(fw.querySelector(".ntext b"), st.ffmpegError ? "בעיה ב-FFmpeg" : "שים לב לתיקיית היעד");
-      setText($("#preptext"), msg);
-      setHidden(fw.querySelector(".prepbar"), true);
-    }
     setText($("#ffhint"), st.ffmpeg ? "נמצא: " + st.ffmpegPath
       : (st.ffmpegBusy ? "פורס את FFmpeg המצורף לתוכנה — רק בהפעלה הראשונה…"
                        : "FFmpeg לא נמצא — האיכויות מוגבלות והמרת אודיו מושבתת."));
@@ -1367,11 +1345,8 @@ poll();
 /* ---------------- first-run preparation ---------------- */
 function paintPrep(st){
   const el = $("#prep");
-  if(!st.ffmpegBusy){ return; }        /* הסתרה/הצגה נקבעות ב-poll לפי אזהרות */
+  if(!st.ffmpegBusy){ setHidden(el, true); return; }
   setHidden(el, false);
-  el.className = "notice warn";
-  setHidden(el.querySelector(".prepbar"), false);
-  setText(el.querySelector(".ntext b"), "מכינים את התוכנה להפעלה הראשונה");
   const p = st.ffmpegPercent || 0;
   setWidth($("#prepfill"), p);
   setText($("#preptext"),

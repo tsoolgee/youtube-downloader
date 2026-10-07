@@ -8,7 +8,6 @@ YT-DLP Studio - תוכנת שולחן עבודה להורדה מיוטיוב.
 בנייה ל-EXE בודד:  python build.py
 """
 
-import collections
 import ctypes
 import hashlib
 import json
@@ -41,7 +40,7 @@ except ImportError:
     sys.exit(1)
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.17"
+APP_VERSION = "0.0.18"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -53,7 +52,6 @@ FROZEN = getattr(sys, "frozen", False)
 
 APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or HOME, "YT-DLP Studio")
 BIN_DIR = os.path.join(APP_DIR, "bin")
-WORK_DIR = os.path.join(APP_DIR, "work")   # הורדה ומיזוג כאן, לא בתיקיית היעד
 CFG_PATH = os.path.join(APP_DIR, "settings.json")
 LOG_PATH = os.path.join(APP_DIR, "log.txt")
 LEGACY_CFG = os.path.join(HOME, ".ytdlp_studio.json")
@@ -81,15 +79,6 @@ def _writable(d):
         return False
 
 
-def _has_console():
-    """גרסת ה-EXE הרגילה נבנית ללא קונסולה; גרסת האבחון עם."""
-    try:
-        return bool(sys.stdout) and sys.stdout.fileno() >= 0
-    except Exception:
-        return False
-
-
-HAS_CONSOLE = _has_console()
 _log_lock = threading.Lock()
 
 
@@ -109,11 +98,8 @@ def log(msg):
                 f.write(line + "\n")
     except Exception:
         pass
-    if HAS_CONSOLE:
-        try:
-            print(line, flush=True)
-        except Exception:
-            pass
+    if not FROZEN:
+        print(line, flush=True)
 
 
 def default_download_dir():
@@ -271,10 +257,7 @@ ERRORS_HE = (
     ("timed out", "פג זמן החיבור"),
     ("timeout", "פג זמן החיבור"),
     ("no space left", "אין מקום פנוי בדיסק"),
-    ("permission denied", "הגישה לקובץ נחסמה — ייתכן שאנטי-וירוס חוסם את התיקייה"),
-    ("access is denied", "הגישה לקובץ נחסמה — ייתכן שאנטי-וירוס חוסם את התיקייה"),
-    ("error opening input files", "ffmpeg לא הצליח לפתוח את קבצי הביניים — "
-                                  "ייתכן שאנטי-וירוס חוסם אותם"),
+    ("permission denied", "אין הרשאת כתיבה לתיקיית היעד"),
     ("unable to connect", "אין חיבור לאינטרנט"),
     ("name or service not known", "אין חיבור לאינטרנט"),
     ("getaddrinfo failed", "אין חיבור לאינטרנט"),
@@ -354,39 +337,6 @@ def locate_ffmpeg(custom=""):
             return d
     w = shutil.which("ffmpeg")
     return os.path.dirname(w) if w else ""
-
-
-NO_WINDOW = 0x08000000 if IS_WIN else 0
-
-
-def ffmpeg_works(folder):
-    """מריץ ffmpeg -version. קובץ פגום או מבודד על ידי אנטי-וירוס ייתפס כאן,
-    במקום להיתקע באמצע מיזוג."""
-    exe = os.path.join(folder or "", _exe("ffmpeg"))
-    if not os.path.isfile(exe):
-        return False
-    try:
-        r = subprocess.run([exe, "-hide_banner", "-version"], capture_output=True,
-                           timeout=25, creationflags=NO_WINDOW)
-        return r.returncode == 0 and b"ffmpeg version" in (r.stdout or b"").lower()
-    except Exception as e:
-        log("ffmpeg: הבדיקה נכשלה (%s)" % e)
-        return False
-
-
-def cloud_folder_warning(folder):
-    """תיקיות מסונכרנות ורשת נועלות קבצים תוך כדי כתיבה ומקפיאות את המיזוג."""
-    p = (folder or "").replace("/", "\\")
-    low = p.lower()
-    if p.startswith("\\\\"):
-        return "תיקיית היעד נמצאת ברשת. מיזוג הקובץ עלול להיתקע — עדיף לשמור לכונן מקומי."
-    for name, label in (("onedrive", "OneDrive"), ("dropbox", "Dropbox"),
-                        ("google drive", "Google Drive"), ("googledrive", "Google Drive"),
-                        ("\\box\\", "Box"), ("icloud", "iCloud")):
-        if name in low:
-            return ("תיקיית היעד מסונכרנת ל-%s. הסנכרון נועל קבצים תוך כדי כתיבה "
-                    "ועלול להקפיא את המיזוג — עדיף תיקייה מקומית." % label)
-    return ""
 
 
 def unpack_ffmpeg(on_progress=None):
@@ -640,106 +590,6 @@ class Updater:
         os._exit(0)
 
 
-# תווי "רוחב מלא" ש-yt-dlp שם במקום תווים אסורים בחלונות. הם חוקיים בשם קובץ,
-# אבל חלק מהמערכות לא מצליחות להעביר אותם ל-ffmpeg ואז המיזוג נכשל.
-FULLWIDTH = {"\uff5c": "-", "\uff1a": " -", "\uff1f": "", "\uff0a": "",
-             "\uff02": "'", "\uff1c": "(", "\uff1e": ")", "\uff0f": "-", "\uffe5": "-"}
-
-
-def safe_title(title, fallback="video"):
-    """שם קובץ נקי: בלי תווי רוחב-מלא ובלי תווים אסורים."""
-    t = str(title or "")
-    for bad, good in FULLWIDTH.items():
-        t = t.replace(bad, good)
-    t = re.sub(r'[\\/:*?"<>|]', "-", t)
-    t = re.sub(r"[\x00-\x1f]", "", t)
-    t = re.sub(r"\s+", " ", t).strip(" .")
-    return t[:120] or fallback
-
-
-def unique_path(path):
-    """מוסיף מספר אם השם כבר תפוס."""
-    if not os.path.exists(path):
-        return path
-    stem, ext = os.path.splitext(path)
-    for i in range(2, 100):
-        cand = "%s (%d)%s" % (stem, i, ext)
-        if not os.path.exists(cand):
-            return cand
-    return path
-
-
-def diagnose_ffmpeg(folder, ffmpeg_dir):
-    """מריץ את ffmpeg שלנו על קבצי הביניים שנשארו, ומחזיר מה הוא באמת אומר."""
-    exe = os.path.join(ffmpeg_dir or "", _exe("ffmpeg"))
-    if not (os.path.isdir(folder) and os.path.isfile(exe)):
-        return "אין קבצי ביניים לבדיקה"
-    parts = sorted((f for f in os.listdir(folder) if re.search(r"\.f\d+\.", f)),
-                   key=lambda f: os.path.getsize(os.path.join(folder, f)), reverse=True)[:2]
-    if not parts:
-        return "לא נמצאו קבצי ביניים"
-    out = []
-    for f in parts:
-        p = os.path.join(folder, f)
-        out.append("  %s | קיים=%s | %d בתים"
-                   % (f[:60], os.path.isfile(p), os.path.getsize(p) if os.path.isfile(p) else 0))
-        try:
-            r = subprocess.run([exe, "-hide_banner", "-i", p, "-f", "null", "-"],
-                               capture_output=True, timeout=60, creationflags=NO_WINDOW)
-            tail = (r.stderr or b"").decode("utf-8", "replace").strip().splitlines()
-            out.append("    ffmpeg יצא עם %d: %s" % (r.returncode, (tail[-1] if tail else "")[:130]))
-        except Exception as e:
-            out.append("    הרצת ffmpeg נכשלה: %s" % e)
-    return "\n".join(out)
-
-
-def clean_work_dir(max_age_hours=24):
-    """שאריות מהורדות שבוטלו או קרסו לא נשארות לתפוס מקום."""
-    if not os.path.isdir(WORK_DIR):
-        return
-    cutoff = time.time() - max_age_hours * 3600
-    removed = 0
-    for name in os.listdir(WORK_DIR):
-        p = os.path.join(WORK_DIR, name)
-        try:
-            if os.path.isfile(p) and os.path.getmtime(p) < cutoff:
-                os.remove(p)
-                removed += 1
-            elif os.path.isdir(p) and os.path.getmtime(p) < cutoff:
-                shutil.rmtree(p, ignore_errors=True)
-                removed += 1
-        except Exception:
-            pass
-    if removed:
-        log("נוקו %d שאריות מתיקיית העבודה" % removed)
-
-
-def clean_intermediates(it):
-    """מוחק את קבצי הביניים (.f137.mp4, .f140.m4a, תמונות) שירדו אבל לא מוזגו."""
-    stems = set()
-    for p in list(getattr(it, "parts", set())) + [getattr(it, "tmpfile", ""),
-                                                   getattr(it, "dlname", "")]:
-        if not p:
-            continue
-        base = re.sub(r"\.f\d+\.[^.]+$", "", p)
-        stems.add(os.path.splitext(base)[0])
-    for base in stems:
-        folder, name = os.path.dirname(base), os.path.basename(base)
-        if not (folder and name and os.path.isdir(folder)):
-            continue
-        for f in os.listdir(folder):
-            full = os.path.join(folder, f)
-            if not os.path.isfile(full) or not f.startswith(name):
-                continue
-            if re.search(r"\.f\d+\.", f) or f.endswith(
-                    (".part", ".ytdl", ".webp", ".jpg", ".png", ".temp.mp4", ".temp.mkv")):
-                try:
-                    os.remove(full)
-                except Exception:
-                    pass
-    it.parts = set()
-
-
 def clean_partials(it):
     """מוחק קבצי ביניים (.part/.ytdl) שנשארו אחרי ביטול הורדה."""
     cand = set()
@@ -758,41 +608,6 @@ def clean_partials(it):
                 os.remove(p)
         except Exception:
             pass
-
-
-class YdlLog:
-    """שומר את השורות האחרונות ש-yt-dlp הדפיס, לאבחון כשלים."""
-
-    def __init__(self):
-        self.lines = collections.deque(maxlen=30)
-
-    @staticmethod
-    def _echo(msg):
-        if HAS_CONSOLE:
-            try:
-                print("    " + str(msg), flush=True)
-            except Exception:
-                pass
-
-    def debug(self, msg):
-        if not str(msg).startswith("[debug] "):
-            self.lines.append(str(msg))
-            self._echo(msg)
-
-    def info(self, msg):
-        self.lines.append(str(msg))
-        self._echo(msg)
-
-    def warning(self, msg):
-        self.lines.append("אזהרה: " + str(msg))
-        self._echo("אזהרה: " + str(msg))
-
-    def error(self, msg):
-        self.lines.append("שגיאה: " + str(msg))
-        self._echo("שגיאה: " + str(msg))
-
-    def tail(self, count=12):
-        return "\n      ".join(list(self.lines)[-count:])
 
 
 class Canceled(Exception):
@@ -816,10 +631,8 @@ class Item:
         self.downloaded = 0
         self.total = 0
         self.stage = ""
-        self.stage_since = time.time()
         self.error = ""
         self.error_raw = ""
-        self.warning = ""
         self.filepath = ""
         self.tmpfile = ""
         self.dlname = ""
@@ -828,9 +641,6 @@ class Item:
         self.added = time.time()
         self.finished = 0
         self.cancel = False
-        self.blocked = False         # נחסם על ידי וידיאוף - להציג כפתור אודיו
-        self.parts = set()           # קבצי הביניים שירדו, לניקוי בכשל
-        self.ydl_log = YdlLog()
 
     def label(self):
         o = self.opts
@@ -848,8 +658,7 @@ class Item:
             "uploader": self.uploader, "duration": self.duration, "thumbnail": self.thumbnail,
             "percent": round(self.percent, 1), "speed": self.speed, "eta": self.eta,
             "downloaded": self.downloaded, "total": self.total, "stage": self.stage,
-            "error": self.error, "errorRaw": self.error_raw, "warning": self.warning,
-            "blocked": self.blocked,
+            "error": self.error, "errorRaw": self.error_raw,
             "filepath": self.filepath, "label": self.label(),
             "opts": self.opts, "pi": self.playlist_index, "pc": self.playlist_count,
         }
@@ -865,71 +674,11 @@ class Manager:
         self.ffmpeg = locate_ffmpeg(settings.get("ffmpeg", ""))
         self.ff_busy = False
         self.ff_percent = 0.0
-        self.ff_error = ""
         self.probe_sem = threading.Semaphore(4)
-        threading.Thread(target=self._watchdog, daemon=True).start()
         if not self.ffmpeg:
             self.ff_busy = True
             threading.Thread(target=self._prepare_ffmpeg, daemon=True).start()
-        else:
-            # ffmpeg שכבר קיים עלול להיות פגום מהרצה קודמת - מוודאים שהוא באמת רץ
-            threading.Thread(target=self._verify_existing_ffmpeg, daemon=True).start()
         threading.Thread(target=self._dispatch, daemon=True).start()
-
-    STUCK_AFTER = 8 * 60          # שמונה דקות בלי שום התקדמות בעיבוד
-
-    def _watchdog(self):
-        """עיבוד שלא זז - מדווח ועוצר, במקום להשאיר את המשתמש מול מסך תקוע."""
-        while True:
-            time.sleep(20)
-            try:
-                with self.lock:
-                    stuck = [x for x in self.items
-                             if x.status == "processing" and not x.cancel
-                             and time.time() - x.stage_since > self.STUCK_AFTER]
-                    others = [x for x in self.items
-                              if x.status in ("downloading", "processing") and x not in stuck]
-                for it in stuck:
-                    log("עיבוד תקוע %.0f דקות בשלב '%s' — עוצר: %s"
-                        % ((time.time() - it.stage_since) / 60, it.stage, it.url))
-                    log("      פלט yt-dlp:\n      " + it.ydl_log.tail())
-                    it.cancel = True
-                    it.error = ("שלב %s נתקע ונעצר. נסה איכות נמוכה יותר או תיקיית יעד מקומית."
-                                % (it.stage or "העיבוד"))
-                    it.error_raw = "watchdog: stuck in %s" % it.stage
-                    if not others:
-                        self._kill_ffmpeg()
-            except Exception:
-                pass
-
-    def _kill_ffmpeg(self):
-        """עוצר את ffmpeg שלנו בלבד, ורק כשאין הורדה אחרת שעלולה להיפגע."""
-        exe = os.path.join(self.ffmpeg or "", _exe("ffmpeg"))
-        if not IS_WIN or not os.path.isfile(exe):
-            return
-        try:
-            subprocess.run(
-                ["powershell", "-NoProfile", "-Command",
-                 "Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" | "
-                 "Where-Object { $_.ExecutablePath -eq '%s' } | "
-                 "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" % exe.replace("'", "''")],
-                capture_output=True, timeout=30, creationflags=NO_WINDOW)
-            log("ffmpeg תקוע נעצר")
-        except Exception as e:
-            log("עצירת ffmpeg נכשלה: %s" % e)
-
-    def _verify_existing_ffmpeg(self):
-        """אם ה-ffmpeg שנמצא לא באמת רץ (קובץ פגום, אנטי-וירוס) - פורסים מחדש."""
-        if ffmpeg_works(self.ffmpeg):
-            return
-        log("ffmpeg: הקיים לא עובר בדיקה — פורס מחדש")
-        try:
-            os.remove(os.path.join(BIN_DIR, _exe("ffmpeg")))
-        except Exception:
-            pass
-        self.ffmpeg = ""
-        self.ff_busy = True
-        self._prepare_ffmpeg()
 
     def _prepare_ffmpeg(self):
         def progress(p):
@@ -938,18 +687,6 @@ class Manager:
         log("ffmpeg: לא נמצא, פורס את המצורף")
         try:
             self.ffmpeg = unpack_ffmpeg(progress) or locate_ffmpeg()
-            if self.ffmpeg and not ffmpeg_works(self.ffmpeg):
-                log("ffmpeg: הקובץ שנפרס לא תקין — פורס מחדש")
-                try:
-                    os.remove(os.path.join(BIN_DIR, _exe("ffmpeg")))
-                except Exception:
-                    pass
-                self.ffmpeg = unpack_ffmpeg(progress) or locate_ffmpeg()
-                if self.ffmpeg and not ffmpeg_works(self.ffmpeg):
-                    log("ffmpeg: עדיין לא תקין — ממשיך בלעדיו")
-                    self.ff_error = ("FFmpeg לא מצליח לרוץ במחשב הזה. "
-                                     "ייתכן שאנטי-וירוס חוסם אותו.")
-                    self.ffmpeg = ""
         except Exception as e:
             log("ffmpeg: פריסה נכשלה: %s" % e)
         finally:
@@ -1012,28 +749,6 @@ class Manager:
                 it.stage = "בוטל"
             return True
 
-    def to_audio(self, iid):
-        """הצלה מחסימת וידיאוף: הורדה מחדש כ-MP3 (אודיו לא נחסם)."""
-        with self.lock:
-            it = self._find(iid)
-            if not it or it.status not in ("error", "canceled", "done"):
-                return False
-            it.opts = self.norm_opts({**it.opts, "kind": "audio", "acodec": "mp3"})
-            it.status = "pending"
-            it.cancel = False
-            it.blocked = False
-            it.error = ""
-            it.error_raw = ""
-            it.warning = ""
-            it.percent = 0.0
-            it.stage = ""
-            it.speed = 0
-            it.eta = 0
-            it.downloaded = 0
-            it.total = 0
-            it.parts = set()
-            return True
-
     def retry(self, iid):
         with self.lock:
             it = self._find(iid)
@@ -1043,7 +758,6 @@ class Manager:
             it.cancel = False
             it.error = ""
             it.error_raw = ""
-            it.warning = ""
             it.percent = 0.0
             it.stage = ""
             it.speed = 0
@@ -1095,8 +809,6 @@ class Manager:
             "ffmpegPath": self.ffmpeg,
             "ffmpegBusy": self.ff_busy,
             "ffmpegPercent": round(self.ff_percent, 1),
-            "ffmpegError": self.ff_error,
-            "folderWarning": cloud_folder_warning(self.settings.get("folder")),
             "active": self.active,
             "version": yt_dlp.version.__version__,
             "app": APP_VERSION,
@@ -1200,12 +912,8 @@ class Manager:
         q = str(o.get("quality", "best"))
         return "best" if q == "best" else q + "p"
 
-    def _build(self, it, extras=True, safe=False):
-        o = dict(it.opts)
-        if not extras:                     # ניסיון שני: בלי מה שנעשה אחרי ההורדה
-            o["thumb"] = o["metadata"] = o["subs"] = o["sponsorblock"] = False
-        if safe:                           # שם קצר ואנגלי בלבד, לעקוף כשל תלוי-שם
-            o["template"] = "yts_%(id)s.%(ext)s"
+    def _build(self, it):
+        o = it.opts
         has_ff = bool(self.ffmpeg)
         folder = o.get("folder") or self.settings["folder"]
         os.makedirs(folder, exist_ok=True)
@@ -1216,18 +924,10 @@ class Manager:
         if o.get("playlist"):
             tmpl = os.path.join("%(playlist_title,channel,uploader|Playlist)s",
                                 "%(playlist_index|0)03d - " + tmpl)
-        # הקבצים הזמניים והמיזוג נעשים בתיקייה פנימית; רק המוגמר עובר ליעד.
-        # אנטי-וירוס נועל קבצים טריים בתיקיית ההורדות ואז ffmpeg לא מצליח לפתוח אותם.
-        try:
-            os.makedirs(WORK_DIR, exist_ok=True)
-            work = WORK_DIR
-        except Exception:
-            work = folder
+        outtmpl = os.path.join(folder, tmpl)
 
         y = {
-            "outtmpl": tmpl,
-            "paths": {"home": folder, "temp": work},
-            "logger": it.ydl_log,
+            "outtmpl": outtmpl,
             "quiet": True, "no_warnings": True, "noprogress": True,
             "ignoreerrors": False, "retries": 10, "fragment_retries": 10,
             "concurrent_fragment_downloads": 4,
@@ -1258,9 +958,9 @@ class Manager:
 
         pps = []
         if o.get("kind") == "audio":
-            # רק זרם אודיו - לעולם לא וידאו, גם לא זמני. בלי fallback ל-b (וידאו),
-            # כדי שבמחשב שחוסם וידאו ההורדה תיגע רק בקבצי שמע.
-            y["format"] = "ba/bestaudio"
+            # מורידים זרם שמע שאינו וידאו בשום מכולה (opus/webm), לא m4a (מכולת mp4),
+            # כך שההורדה עוברת גם מאחורי סינון שחוסם וידאו. ללא fallback לוידאו.
+            y["format"] = "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio[ext=ogg]/bestaudio"
             if has_ff:
                 codec = str(o.get("acodec", "mp3"))
                 pp = {"key": "FFmpegExtractAudio", "preferredcodec": codec}
@@ -1306,11 +1006,9 @@ class Manager:
             it.tmpfile = d["tmpfilename"]
         if d.get("filename"):
             it.dlname = d["filename"]
-            it.parts.add(d["filename"])
         if it.cancel:
             raise Canceled()
         st = d.get("status")
-        it.stage_since = time.time()
         if st == "downloading":
             it.status = "downloading"
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
@@ -1342,7 +1040,6 @@ class Manager:
     def _pp_hook(self, it, d):
         if it.cancel:
             raise Canceled()
-        it.stage_since = time.time()
         names = {"FFmpegExtractAudio": "ממיר אודיו", "EmbedThumbnail": "משבץ תמונה",
                  "FFmpegMetadata": "כותב מטא-דאטה", "Merger": "ממזג וידאו + אודיו",
                  "FFmpegEmbedSubtitle": "משבץ כתוביות", "ModifyChapters": "מסיר חסויות",
@@ -1357,59 +1054,11 @@ class Manager:
             if fp:
                 it.filepath = fp
 
-    @staticmethod
-    def _is_pp_error(e):
-        """כשל בשלב שאחרי ההורדה - מיזוג, המרה, תמונה, כתוביות."""
-        if isinstance(e, getattr(yt_dlp.utils, "PostProcessingError", ())):
-            return True
-        t = str(e).lower()
-        return ("postprocessing" in t or "error opening input files" in t
-                or "ffmpeg exited with code" in t)
-
     def _run(self, it):
         try:
-            try:
-                info = self._attempt(it, extras=True, tries=3)
-            except Canceled:
-                raise
-            except Exception as e:
-                if it.cancel or not self._is_pp_error(e):
-                    raise
-                folder = it.opts.get("folder") or self.settings["folder"]
-                log("עיבוד נכשל (%s)" % str(e)[:160])
-                log("      פלט yt-dlp:\n      " + it.ydl_log.tail())
-                log("      אבחון ffmpeg ישירות:\n" + diagnose_ffmpeg(folder, self.ffmpeg))
-
-                if it.opts.get("kind") == "video":
-                    # קובצי הווידאו ירדו אבל ffmpeg נחסם מלקרוא אותם למיזוג -
-                    # משהו במחשב חוסם קובצי וידאו. אין דרך למזג. מנקים ומציעים אודיו.
-                    clean_intermediates(it)
-                    it.blocked = True
-                    it.status = "error"
-                    it.stage = "נחסם"
-                    it.error = "לא ניתן להוריד וידאו במחשב הזה — אפשר להוריד כאודיו"
-                    it.error_raw = str(e)[:400]
-                    it.speed = 0
-                    log("הורדה: וידאו נחסם במחשב %s" % it.url)
-                    return
-
-                # אודיו: ניסיון שני עם שם קובץ קצר ואנגלי
-                log("מנסה שוב עם שם קובץ בטוח")
-                it.stage = "מנסה שוב עם שם קובץ בטוח"
-                it.percent = 0.0
-                try:
-                    info = self._attempt(it, extras=True, safe=True)
-                    it.warning = "השם המקורי גרם לתקלה בעיבוד — נשמר בשם מותאם"
-                except Canceled:
-                    raise
-                except Exception as e2:
-                    if it.cancel or not self._is_pp_error(e2):
-                        raise
-                    log("גם עם שם בטוח נכשל (%s) — מנסה בלי תוספות" % str(e2)[:160])
-                    it.stage = "מנסה שוב בלי תוספות"
-                    info = self._attempt(it, extras=False, safe=True)
-                    it.warning = "נשמר בשם מותאם ובלי תמונה ומטא-דאטה"
-                it.safe_named = True
+            y = self._build(it)
+            with yt_dlp.YoutubeDL(y) as ydl:
+                info = ydl.extract_info(it.url, download=True)
             if it.cancel:
                 raise Canceled()
             if info:
@@ -1418,9 +1067,6 @@ class Manager:
                     rd = info.get("requested_downloads") or []
                     if rd and rd[0].get("filepath"):
                         it.filepath = rd[0]["filepath"]
-            # שינוי השם אחרון, אחרי שהנתיב הסופי נקבע - אחרת הוא היה נדרס
-            if getattr(it, "safe_named", False):
-                self._rename_to_title(it, info)
             it.status = "done"
             it.percent = 100.0
             it.stage = "הושלם"
@@ -1435,59 +1081,22 @@ class Manager:
             it.stage = "בוטל"
             it.speed = 0
             clean_partials(it)
-            clean_intermediates(it)
         except Exception as e:
             if it.cancel:
                 it.status = "canceled"
                 it.stage = "בוטל"
                 clean_partials(it)
-                clean_intermediates(it)
             else:
                 msg = re.sub(r"\x1b\[[0-9;]*m", "", str(e)).replace("ERROR: ", "").strip()
                 it.status = "error"
                 it.error_raw = msg[:400]
                 it.error = friendly_error(msg)[:400] or "שגיאה לא ידועה"
                 log("הורדה: כשל %s :: %s" % (it.url, msg[:300]))
-                log("      פלט yt-dlp:\n      " + it.ydl_log.tail())
                 it.stage = "שגיאה"
             it.speed = 0
         finally:
             with self.lock:
                 self.active = max(0, self.active - 1)
-
-    def _attempt(self, it, extras=True, safe=False, tries=1):
-        """נעילה של אנטי-וירוס היא לרוב זמנית - שווה לנסות שוב אחרי כמה שניות."""
-        last = None
-        for i in range(max(1, tries)):
-            if it.cancel:
-                raise Canceled()
-            try:
-                with yt_dlp.YoutubeDL(self._build(it, extras, safe)) as ydl:
-                    return ydl.extract_info(it.url, download=True)
-            except Exception as e:
-                last = e
-                if i + 1 >= tries or not self._is_pp_error(e) or it.cancel:
-                    raise
-                log("עיבוד נכשל, מנסה שוב בעוד 4 שניות (%d/%d)" % (i + 2, tries))
-                it.stage = "מנסה שוב"
-                time.sleep(4)
-        raise last
-
-    def _rename_to_title(self, it, info):
-        """אחרי הורדה בשם בטוח - מחזירים לשם לפי כותרת הסרטון, בפייתון (בלי ffmpeg)."""
-        src = it.filepath
-        if not src or not os.path.isfile(src):
-            return
-        title = (info or {}).get("title") or it.title
-        folder = os.path.dirname(src)
-        ext = os.path.splitext(src)[1]
-        dst = unique_path(os.path.join(folder, safe_title(title, os.path.basename(src)) + ext))
-        try:
-            os.replace(src, dst)
-            it.filepath = dst
-            log("שונה שם: %s -> %s" % (os.path.basename(src), os.path.basename(dst)))
-        except Exception as e:
-            log("שינוי שם נכשל (%s) — הקובץ נשאר בשם %s" % (e, os.path.basename(src)))
 
 
 # ----------------------------------------------------------------------------- api bridge
@@ -1589,8 +1198,6 @@ class Api:
             return {"ok": MGR.cancel(d.get("id"))}
         if path == "/api/retry":
             return {"ok": MGR.retry(d.get("id"))}
-        if path == "/api/toaudio":
-            return {"ok": MGR.to_audio(d.get("id"))}
         if path == "/api/remove":
             return {"ok": MGR.remove(d.get("id"))}
         if path == "/api/clear":
@@ -1723,8 +1330,7 @@ def main():
         return
 
     log("=" * 60)
-    log("הפעלה: גרסה %s | frozen=%s | קונסולה=%s | yt-dlp %s"
-        % (APP_VERSION, FROZEN, HAS_CONSOLE, yt_dlp.version.__version__))
+    log("הפעלה: גרסה %s | frozen=%s | yt-dlp %s" % (APP_VERSION, FROZEN, yt_dlp.version.__version__))
     log("נתיבים: exe=%s | הורדות=%s | ffmpeg=%r | ממשק=%s" % (
         (sys.executable if FROZEN else __file__), SETTINGS.get("folder"),
         MGR.ffmpeg or "בהכנה", path))
@@ -1745,7 +1351,6 @@ def main():
     threading.Timer(20.0, close_splash).start()    # רשת ביטחון אם האירוע לא נורה
     UPD.check_async(delay=4.0)
     NOTE.check_async(delay=2.0)
-    threading.Thread(target=clean_work_dir, daemon=True).start()
     threading.Thread(target=bridge_selftest, args=(win, path), daemon=True).start()
     try:
         webview.start(debug=os.environ.get("YTS_DEBUG") == "1")
