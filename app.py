@@ -51,7 +51,7 @@ except Exception:
     _SAFE_NAME_ACTIONS = None
 
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.19"
+APP_VERSION = "0.0.20"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -253,6 +253,8 @@ ERRORS_HE = (
     ("http error 418", "נחסם על ידי נטפרי"),
     ("error 418", "נחסם על ידי נטפרי"),
     ("blocked by", "הקישור חסום על ידי הסינון"),
+    ("not a bot", "יוטיוב דורש אימות (בדיקת בוטים) — הוסף קובץ עוגיות cookies.txt בהגדרות"),
+    ("confirm you're not", "יוטיוב דורש אימות (בדיקת בוטים) — הוסף קובץ עוגיות cookies.txt בהגדרות"),
     ("private video", "הסרטון פרטי"),
     ("members-only", "הסרטון פתוח למנויי הערוץ בלבד"),
     ("confirm your age", "הסרטון מוגבל בגיל — הוסף קובץ עוגיות בהגדרות"),
