@@ -602,13 +602,21 @@ body:has(.scrim.open) #clipbar{display:none !important}
       <div class="srow"><label>הגבלת מהירות</label>
         <div class="field"><input type="text" id="s_rate" placeholder="ריק = ללא הגבלה" dir="ltr"><span>2M / 500K</span></div>
       </div>
-      <div class="srow"><label>עוגיות מדפדפן</label>
-        <div class="field sel"><select id="s_cookies">
-          <option value="">ללא</option><option value="chrome">Chrome</option><option value="edge">Edge</option>
-          <option value="firefox">Firefox</option><option value="brave">Brave</option><option value="opera">Opera</option>
-          <option value="vivaldi">Vivaldi</option></select></div>
+      <div class="srow"><label>קובץ עוגיות</label>
+        <div class="field" style="flex:1"><input type="text" id="s_cookiefile" dir="ltr" readonly placeholder="ריק = בלי עוגיות"></div>
+        <button class="btn sm" id="pickcookie">בחר…</button>
+        <button class="btn sm" id="clearcookie">נקה</button>
       </div>
-      <p class="hint">עוגיות נדרשות לסרטונים מוגבלי גיל או פרטיים. הדפדפן צריך להיות סגור בזמן ההורדה.</p>
+      <div class="presets" style="padding:2px 2px 4px">
+        <span class="lbl">או מדפדפן:</span>
+        <button class="pz ck" data-ck="firefox">Firefox</button>
+        <button class="pz ck" data-ck="chrome">Chrome</button>
+        <button class="pz ck" data-ck="edge">Edge</button>
+        <button class="pz ck" data-ck="brave">Brave</button>
+        <button class="pz ck" data-ck="opera">Opera</button>
+        <button class="pz ck" data-ck="vivaldi">Vivaldi</button>
+      </div>
+      <p class="hint">עוגיות נדרשות לסרטונים מוגבלי גיל או פרטיים. <b>הדרך האמינה:</b> ייצא <code dir="ltr">cookies.txt</code> מהדפדפן (תוסף "Get cookies.txt LOCALLY") ובחר אותו כאן. עוגיות ישירות מ-Chrome/Edge לרוב נכשלות בגלל הצפנה חדשה של גוגל; מ-Firefox בדרך כלל עובד כשהדפדפן סגור.</p>
       <div class="srow"><label>פרוקסי</label>
         <div class="field"><input type="text" id="s_proxy" dir="ltr" placeholder="ריק = חיבור ישיר"></div>
       </div>
@@ -821,7 +829,8 @@ function applySettingsToUI(s){
   $("#s_folder").value = s.folder || "";
   $("#s_conc").value = s.concurrency;
   $("#s_rate").value = s.ratelimit || "";
-  $("#s_cookies").value = s.cookies || "";
+  $("#s_cookiefile").value = s.cookiefile || "";
+  $$("#presets-cookies, .pz.ck").forEach(b => b.classList && b.classList.toggle("on", !!s.cookies && b.dataset.ck === s.cookies));
   $("#s_proxy").value = s.proxy || "";
   $("#s_tmpl").value = s.template || "";
   $("#s_ffmpeg").value = s.ffmpeg || "";
@@ -1066,7 +1075,27 @@ $("#openfolder").onclick = () => api("/api/openfolder", {}).catch(()=>{});
 $("#s_folder").addEventListener("change", e => pushSettings({folder: e.target.value}, true));
 $("#s_conc").addEventListener("change", e => pushSettings({concurrency: Math.max(1, Math.min(8, +e.target.value||2))}, true));
 $("#s_rate").addEventListener("change", e => pushSettings({ratelimit: e.target.value}, true));
-$("#s_cookies").addEventListener("change", e => pushSettings({cookies: e.target.value}, true));
+$$(".pz.ck").forEach(b => b.onclick = () => {
+  const cur = (S.cookies === b.dataset.ck);
+  const val = cur ? "" : b.dataset.ck;              // לחיצה שנייה מבטלת
+  $$(".pz.ck").forEach(x => x.classList.toggle("on", !cur && x === b));
+  pushSettings({cookies: val, cookiefile: ""}, true);
+  $("#s_cookiefile").value = "";
+});
+$("#pickcookie").onclick = async () => {
+  const r = await api("/api/cookiefile", {}).catch(()=>null);
+  if(r && r.cookiefile){
+    $("#s_cookiefile").value = r.cookiefile;
+    $$(".pz.ck").forEach(x => x.classList.remove("on"));
+    if(r.settings) applySettingsToUI(r.settings);
+    toast("קובץ העוגיות נבחר", "ok");
+  }
+};
+$("#clearcookie").onclick = () => {
+  $("#s_cookiefile").value = "";
+  $$(".pz.ck").forEach(x => x.classList.remove("on"));
+  pushSettings({cookiefile: "", cookies: ""}, true);
+};
 $("#s_proxy").addEventListener("change", e => pushSettings({proxy: e.target.value}, true));
 $("#s_tmpl").addEventListener("change", e => pushSettings({template: e.target.value}, true));
 $("#s_ffmpeg").addEventListener("change", e => pushSettings({ffmpeg: e.target.value}, true));

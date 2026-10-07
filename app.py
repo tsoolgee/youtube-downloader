@@ -39,8 +39,19 @@ except ImportError:
     print("שגיאה: הספרייה yt-dlp אינה מותקנת.\n  pip install -U yt-dlp")
     sys.exit(1)
 
+# מחליף תווים אסורים בחלונות (| : ? * " < > / \) ב-'-' בתוך הכותרת, לפני יצירת שם הקובץ.
+# בלי זה yt-dlp מחליף אותם בתווי "רוחב מלא" (｜：？) ש-ffmpeg נכשל לפתוח במחשב בקידוד עברי
+# ("Error opening output files: Invalid argument"). לא קשור לסינון - בטיחות שמות כללית.
+try:
+    from yt_dlp.postprocessor.metadataparser import MetadataParserPP
+    _SAFE_NAME_ACTIONS = [(MetadataParserPP.Actions.REPLACE, f, r'[|/\\:*?"<>]', "-")
+                          for f in ("title", "channel", "uploader",
+                                    "playlist_title", "track", "album")]
+except Exception:
+    _SAFE_NAME_ACTIONS = None
+
 APP_NAME = "הורדה ניידת מיוטיוב צול גאה"
-APP_VERSION = "0.0.18"
+APP_VERSION = "0.0.19"
 UPDATE_REPO = "tsoolgee/youtube-downloader"
 APP_FILENAME = APP_NAME + ".exe"      # השם שהתוכנה מתקינה את עצמה בו בעדכון
 UA = "YT-DLP-Studio/" + APP_VERSION
@@ -129,6 +140,7 @@ DEFAULT_SETTINGS = {
     "concurrency": 2,
     "ratelimit": "",
     "cookies": "",             # ''|chrome|edge|firefox|brave|opera|vivaldi
+    "cookiefile": "",          # נתיב ל-cookies.txt (עדיף על עוגיות מדפדפן)
     "proxy": "",               # http://host:port | socks5://host:port | '' = ישיר
     "template": "%(title)s.%(ext)s",
     "perItem": False,          # איכות שונה לכל הורדה (כבוי כברירת מחדל)
@@ -243,8 +255,12 @@ ERRORS_HE = (
     ("blocked by", "הקישור חסום על ידי הסינון"),
     ("private video", "הסרטון פרטי"),
     ("members-only", "הסרטון פתוח למנויי הערוץ בלבד"),
-    ("confirm your age", "הסרטון מוגבל בגיל — הפעל עוגיות מדפדפן בהגדרות"),
-    ("age-restricted", "הסרטון מוגבל בגיל — הפעל עוגיות מדפדפן בהגדרות"),
+    ("confirm your age", "הסרטון מוגבל בגיל — הוסף קובץ עוגיות בהגדרות"),
+    ("age-restricted", "הסרטון מוגבל בגיל — הוסף קובץ עוגיות בהגדרות"),
+    ("could not copy", "סגור את הדפדפן כדי לקרוא ממנו עוגיות, או בחר קובץ cookies.txt בהגדרות"),
+    ("failed to decrypt", "Chrome/Edge חוסמים קריאת עוגיות — ייצא cookies.txt ובחר אותו בהגדרות"),
+    ("dpapi", "Chrome/Edge חוסמים קריאת עוגיות — ייצא cookies.txt ובחר אותו בהגדרות"),
+    ("cookie database", "לא ניתן לקרוא עוגיות מהדפדפן — בחר קובץ cookies.txt בהגדרות"),
     ("video unavailable", "הסרטון אינו זמין"),
     ("removed by the uploader", "הסרטון הוסר על ידי המעלה"),
     ("copyright", "הסרטון הוסר בגלל זכויות יוצרים"),
@@ -890,9 +906,13 @@ class Manager:
         return ts[-1]["url"] if ts else ""
 
     def _auth(self, ydl_opts):
-        cb = self.settings.get("cookies") or ""
-        if cb:
-            ydl_opts["cookiesfrombrowser"] = (cb,)
+        cf = str(self.settings.get("cookiefile") or "").strip()
+        if cf and os.path.isfile(cf):          # קובץ עוגיות עדיף - עובד בכל דפדפן
+            ydl_opts["cookiefile"] = cf
+        else:
+            cb = self.settings.get("cookies") or ""
+            if cb:
+                ydl_opts["cookiesfrombrowser"] = (cb,)
         px = str(self.settings.get("proxy") or "").strip()
         if px:
             ydl_opts["proxy"] = px
@@ -997,6 +1017,9 @@ class Manager:
         if has_ff and o.get("thumb"):
             y["writethumbnail"] = True
             pps.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
+        if _SAFE_NAME_ACTIONS:      # רץ ראשון, לפני קביעת שם הקובץ והמיזוג
+            pps.insert(0, {"key": "MetadataParser", "when": "pre_process",
+                           "actions": _SAFE_NAME_ACTIONS})
         if pps:
             y["postprocessors"] = pps
         return y
@@ -1183,6 +1206,22 @@ class Api:
                 SETTINGS["folderAuto"] = False
                 save_settings(SETTINGS)
             return {"folder": folder, "settings": SETTINGS}
+
+        if path == "/api/cookiefile":
+            picked = ""
+            try:
+                sel = WIN.create_file_dialog(
+                    webview.OPEN_DIALOG, directory=HOME, allow_multiple=False,
+                    file_types=("קובץ עוגיות (*.txt)", "כל הקבצים (*.*)"))
+                if sel:
+                    picked = sel[0] if isinstance(sel, (list, tuple)) else str(sel)
+            except Exception:
+                picked = ""
+            if picked:
+                SETTINGS["cookiefile"] = picked
+                SETTINGS["cookies"] = ""
+                save_settings(SETTINGS)
+            return {"cookiefile": picked, "settings": SETTINGS}
 
         if path == "/api/openfolder":
             folder = SETTINGS.get("folder") or DEFAULT_SETTINGS["folder"]
